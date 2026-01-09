@@ -1,6 +1,8 @@
 # DICOM MRI Generator
 
-Outil CLI Python pour générer des fichiers DICOM d'IRM multi-frame valides pour tester des interfaces médicales.
+Outil CLI Python pour générer des séries DICOM d'IRM valides pour tester des interfaces médicales.
+
+**Génère plusieurs fichiers DICOM** (un par image) dans un dossier, format standard attendu par les plateformes médicales.
 
 ## Installation
 
@@ -11,39 +13,62 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python generate_dicom_mri.py --num-images 120 --total-size 4.5GB --output mri_test.dcm
+python generate_dicom_mri.py --num-images 120 --total-size 1GB --output mri_series
+```
+
+Cela créera un dossier `mri_series/` contenant 120 fichiers DICOM individuels:
+```
+mri_series/
+├── IMG0001.dcm
+├── IMG0002.dcm
+├── ...
+└── IMG0120.dcm
 ```
 
 ### Paramètres
 
 - `--num-images` (requis): Nombre d'images/coupes dans la série
-- `--total-size` (requis): Taille totale cible (KB, MB, GB)
-- `--output` (optionnel): Nom du fichier de sortie (défaut: `generated_mri.dcm`)
+- `--total-size` (requis): Taille totale cible pour tous les fichiers (KB, MB, GB)
+- `--output` (optionnel): Nom du dossier de sortie (défaut: `dicom_series`)
 - `--seed` (optionnel): Seed pour reproductibilité
 
 ### Exemples
 
 ```bash
-# Générer 120 images pour 4.5 GB
-python generate_dicom_mri.py --num-images 120 --total-size 4.5GB
+# Générer 120 images pour 1 GB total
+python generate_dicom_mri.py --num-images 120 --total-size 1GB
 
-# Avec nom de fichier personnalisé et seed
-python generate_dicom_mri.py --num-images 50 --total-size 1GB --output test.dcm --seed 42
+# Avec nom de dossier personnalisé et seed
+python generate_dicom_mri.py --num-images 50 --total-size 500MB --output my_mri --seed 42
+
+# Série IRM complète pour test plateforme médicale
+python generate_dicom_mri.py --num-images 120 --total-size 1GB --output test_patient_001
 ```
 
-## Limitations
+## Utilisation avec Plateforme Médicale
 
-- **Taille maximale:** ~4 GB par fichier DICOM (limitation du format DICOM)
-  - Si vous demandez plus de 4.5 GB, le script limitera automatiquement à 4 GB
-  - Pour des fichiers plus grands, générez plusieurs fichiers séparés
+Après génération, importez **l'intégralité du dossier** dans votre plateforme:
+
+1. Générez la série: `python generate_dicom_mri.py --num-images 120 --total-size 1GB --output patient_test`
+2. Dans votre plateforme médicale, sélectionnez **tout le dossier** `patient_test/`
+3. La plateforme reconnaîtra automatiquement les 120 images comme une série IRM unique
+
+## Caractéristiques
+
+- ✅ Génère des fichiers DICOM individuels (format standard)
+- ✅ Tous les fichiers partagent le même Study UID et Series UID
+- ✅ Chaque fichier a un InstanceNumber unique (ordre de la série)
+- ✅ Métadonnées MRI réalistes (SIEMENS, GE, PHILIPS)
+- ✅ Compatible avec plateformes médicales PACS
+- ✅ Reproductible avec seed
 
 ## Performance
 
-- Small files (< 100MB): < 5 seconds
-- Medium files (100MB - 1GB): 5-20 seconds
-- Large files (1GB - 4GB): 20-90 seconds
+- 10 images (100MB total): < 5 seconds
+- 50 images (500MB total): 5-15 seconds
+- 120 images (1GB total): 15-30 seconds
 
-Performance depends on disk speed. The script generates pixel data progressively to avoid memory issues.
+Performance depends on disk speed and number of files. Each file is generated and written individually.
 
 ## Testing
 
