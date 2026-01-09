@@ -13,6 +13,8 @@ from datetime import datetime
 import random
 import numpy as np
 import argparse
+import sys
+import os
 
 
 def parse_size(size_str):
@@ -257,3 +259,82 @@ Exemples:
         parser.error("--num-images doit être > 0")
 
     return args
+
+
+def format_bytes(bytes_size):
+    """Format bytes as human-readable string."""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.2f} TB"
+
+
+def main():
+    """Main entry point."""
+    # Parse arguments
+    args = parse_arguments()
+
+    try:
+        # Parse and validate size
+        print("Calcul de la résolution optimale...")
+        total_bytes = parse_size(args.total_size)
+
+        if total_bytes <= 0:
+            print(f"Erreur: La taille doit être > 0", file=sys.stderr)
+            return 1
+
+        # Check disk space
+        stat = os.statvfs('.')
+        available_space = stat.f_bavail * stat.f_frsize
+        if total_bytes > available_space:
+            print(f"Erreur: Espace disque insuffisant. Requis: {format_bytes(total_bytes)}, Disponible: {format_bytes(available_space)}", file=sys.stderr)
+            return 1
+
+        # Calculate dimensions
+        width, height = calculate_dimensions(total_bytes, args.num_images)
+
+        # Estimate actual file size
+        pixel_bytes = args.num_images * width * height * 2  # 2 bytes per pixel
+        metadata_overhead = 100 * 1024  # 100KB estimate
+        estimated_size = pixel_bytes + metadata_overhead
+
+        print(f"Résolution: {width}x{height} pixels par frame")
+        print(f"Taille estimée: {format_bytes(estimated_size)} ({args.num_images} frames)")
+
+        # Generate metadata
+        print("Génération des métadonnées DICOM...")
+        ds = generate_metadata(args.num_images, width, height)
+
+        # Generate pixel data
+        print("Génération des données d'image...")
+        pixel_data = generate_pixel_data(args.num_images, width, height, args.seed)
+
+        # Add pixel data to dataset
+        # Flatten to 1D array as DICOM expects
+        ds.PixelData = pixel_data.tobytes()
+
+        # Write DICOM file
+        print(f"Écriture du fichier DICOM: {args.output}")
+        ds.save_as(args.output, write_like_original=False)
+
+        # Get actual file size
+        actual_size = os.path.getsize(args.output)
+        print(f"Fichier DICOM créé: {args.output}")
+        print(f"Taille réelle: {format_bytes(actual_size)}")
+
+        return 0
+
+    except ValueError as e:
+        print(f"Erreur: {e}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"Erreur d'écriture: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Erreur inattendue: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
