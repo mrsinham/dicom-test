@@ -31,11 +31,17 @@ python generate_dicom_mri.py --num-images 120 --total-size 4.5GB
 python generate_dicom_mri.py --num-images 50 --total-size 1GB --output test.dcm --seed 42
 ```
 
+## Limitations
+
+- **Taille maximale:** ~4 GB par fichier DICOM (limitation du format DICOM)
+  - Si vous demandez plus de 4.5 GB, le script limitera automatiquement à 4 GB
+  - Pour des fichiers plus grands, générez plusieurs fichiers séparés
+
 ## Performance
 
 - Small files (< 100MB): < 5 seconds
 - Medium files (100MB - 1GB): 5-20 seconds
-- Large files (1GB - 5GB): 20-90 seconds
+- Large files (1GB - 4GB): 20-90 seconds
 
 Performance depends on disk speed. The script generates pixel data progressively to avoid memory issues.
 
