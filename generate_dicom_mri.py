@@ -68,6 +68,15 @@ def calculate_dimensions(total_size_bytes, num_images):
     # Available bytes for pixel data
     available_bytes = total_size_bytes - metadata_overhead
 
+    # DICOM limit: pixel data must be < 4GB (2^32 - 1 bytes for length field)
+    # Use 4GB as safe limit with margin
+    MAX_PIXEL_DATA_SIZE = 4 * 1024 * 1024 * 1024  # 4GB
+
+    # If requested size exceeds DICOM limit, cap it
+    if available_bytes > MAX_PIXEL_DATA_SIZE:
+        available_bytes = MAX_PIXEL_DATA_SIZE
+        print(f"Attention: Taille limitée à 4 GB (limite DICOM pour pixel data)")
+
     # Calculate pixels (2 bytes per pixel for uint16)
     bytes_per_pixel = 2
     total_pixels = available_bytes // bytes_per_pixel
