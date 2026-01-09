@@ -136,3 +136,53 @@ def test_generate_metadata_multi_frame():
     assert ds.BitsStored == 16
     assert ds.HighBit == 15
     assert ds.PixelRepresentation == 0  # unsigned
+
+
+from generate_dicom_mri import generate_pixel_data
+import numpy as np
+
+
+def test_generate_pixel_data_shape():
+    """Test pixel data has correct shape."""
+    num_images = 10
+    width, height = 512, 512
+    pixel_data = generate_pixel_data(num_images, width, height)
+
+    expected_shape = (num_images, height, width)
+    assert pixel_data.shape == expected_shape
+
+
+def test_generate_pixel_data_dtype():
+    """Test pixel data is uint16."""
+    pixel_data = generate_pixel_data(5, 256, 256)
+    assert pixel_data.dtype == np.uint16
+
+
+def test_generate_pixel_data_range():
+    """Test pixel values are in valid range."""
+    pixel_data = generate_pixel_data(5, 256, 256)
+
+    # Should be in 12-bit range (0-4095)
+    assert pixel_data.min() >= 0
+    assert pixel_data.max() <= 4095
+
+
+def test_generate_pixel_data_with_seed():
+    """Test seed produces reproducible results."""
+    num_images, width, height = 3, 128, 128
+
+    data1 = generate_pixel_data(num_images, width, height, seed=42)
+    data2 = generate_pixel_data(num_images, width, height, seed=42)
+
+    assert np.array_equal(data1, data2)
+
+
+def test_generate_pixel_data_different_without_seed():
+    """Test different results without seed."""
+    num_images, width, height = 3, 128, 128
+
+    data1 = generate_pixel_data(num_images, width, height)
+    data2 = generate_pixel_data(num_images, width, height)
+
+    # Should be different (with very high probability)
+    assert not np.array_equal(data1, data2)

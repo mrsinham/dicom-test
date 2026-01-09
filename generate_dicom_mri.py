@@ -11,6 +11,7 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import generate_uid, ExplicitVRLittleEndian
 from datetime import datetime
 import random
+import numpy as np
 
 
 def parse_size(size_str):
@@ -175,3 +176,26 @@ def generate_metadata(num_images, width, height):
     ds.PixelSpacing = [pixel_spacing, pixel_spacing]
 
     return ds
+
+
+def generate_pixel_data(num_images, width, height, seed=None):
+    """
+    Generate random pixel data for MRI images.
+
+    Args:
+        num_images: Number of frames
+        width: Image width
+        height: Image height
+        seed: Optional random seed for reproducibility
+
+    Returns:
+        numpy.ndarray: Array of shape (num_images, height, width) with dtype uint16
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Generate random noise in 12-bit range (0-4095) - typical for MRI
+    # Shape: (num_images, height, width)
+    pixel_data = np.random.randint(0, 4096, size=(num_images, height, width), dtype=np.uint16)
+
+    return pixel_data
