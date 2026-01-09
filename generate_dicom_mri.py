@@ -99,14 +99,17 @@ def calculate_dimensions(total_size_bytes, num_images):
     return dim, dim
 
 
-def generate_metadata(num_images, width, height):
+def generate_metadata(num_images, width, height, instance_number=None, study_uid=None, series_uid=None):
     """
     Generate DICOM dataset with realistic MRI metadata.
 
     Args:
-        num_images: Number of frames
+        num_images: Number of frames (used for series info, but each file has 1 frame)
         width: Image width in pixels
         height: Image height in pixels
+        instance_number: Instance number for this image (1-based)
+        study_uid: Shared Study Instance UID (if None, generates new)
+        series_uid: Shared Series Instance UID (if None, generates new)
 
     Returns:
         pydicom.Dataset: Dataset with metadata
@@ -129,7 +132,7 @@ def generate_metadata(num_images, width, height):
     ds.PatientSex = random.choice(['M', 'F'])
 
     # Study information
-    ds.StudyInstanceUID = generate_uid()
+    ds.StudyInstanceUID = study_uid if study_uid else generate_uid()
     now = datetime.now()
     ds.StudyDate = now.strftime('%Y%m%d')
     ds.StudyTime = now.strftime('%H%M%S')
@@ -137,10 +140,14 @@ def generate_metadata(num_images, width, height):
     ds.AccessionNumber = f"ACC{random.randint(100000, 999999)}"
 
     # Series information
-    ds.SeriesInstanceUID = generate_uid()
+    ds.SeriesInstanceUID = series_uid if series_uid else generate_uid()
     ds.SeriesNumber = 1
-    ds.SeriesDescription = "Test MRI Series - Multi-frame"
+    ds.SeriesDescription = f"Test MRI Series - {num_images} images"
     ds.Modality = 'MR'
+
+    # Instance number (position in series)
+    if instance_number is not None:
+        ds.InstanceNumber = instance_number
 
     # SOP Common
     ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
@@ -173,8 +180,7 @@ def generate_metadata(num_images, width, height):
     ds.SpacingBetweenSlices = ds.SliceThickness + random.uniform(0, 0.5)  # mm
     ds.SequenceName = random.choice(['T1_MPRAGE', 'T1_SE', 'T2_FSE', 'T2_FLAIR'])
 
-    # Multi-frame image parameters
-    ds.NumberOfFrames = num_images
+    # Image parameters (single frame per file)
     ds.SamplesPerPixel = 1
     ds.PhotometricInterpretation = 'MONOCHROME2'
     ds.Rows = height
@@ -196,7 +202,7 @@ def generate_pixel_data(num_images, width, height, seed=None):
     Generate random pixel data for MRI images.
 
     Args:
-        num_images: Number of frames
+        num_images: Number of frames to generate
         width: Image width
         height: Image height
         seed: Optional random seed for reproducibility
@@ -210,6 +216,27 @@ def generate_pixel_data(num_images, width, height, seed=None):
     # Generate random noise in 12-bit range (0-4095) - typical for MRI
     # Shape: (num_images, height, width)
     pixel_data = np.random.randint(0, 4096, size=(num_images, height, width), dtype=np.uint16)
+
+    return pixel_data
+
+
+def generate_single_image(width, height, seed=None):
+    """
+    Generate random pixel data for a single MRI image.
+
+    Args:
+        width: Image width
+        height: Image height
+        seed: Optional random seed for reproducibility
+
+    Returns:
+        numpy.ndarray: Array of shape (height, width) with dtype uint16
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Generate random noise in 12-bit range (0-4095) - typical for MRI
+    pixel_data = np.random.randint(0, 4096, size=(height, width), dtype=np.uint16)
 
     return pixel_data
 
@@ -251,8 +278,8 @@ Exemples:
     parser.add_argument(
         '--output',
         type=str,
-        default='generated_mri.dcm',
-        help='Nom du fichier de sortie (défaut: generated_mri.dcm)'
+        default='dicom_series',
+        help='Nom du dossier de sortie (défaut: dicom_series)'
     )
 
     parser.add_argument(
@@ -309,29 +336,62 @@ def main():
         metadata_overhead = 100 * 1024  # 100KB estimate
         estimated_size = pixel_bytes + metadata_overhead
 
-        print(f"Résolution: {width}x{height} pixels par frame")
-        print(f"Taille estimée: {format_bytes(estimated_size)} ({args.num_images} frames)")
+        print(f"Résolution: {width}x{height} pixels par image")
+        print(f"Taille estimée: {format_bytes(estimated_size)} ({args.num_images} images)")
 
-        # Generate metadata
-        print("Génération des métadonnées DICOM...")
-        ds = generate_metadata(args.num_images, width, height)
+        # Create output directory
+        output_dir = args.output
+        if os.path.exists(output_dir):
+            print(f"Attention: Le dossier {output_dir} existe déjà")
+        else:
+            os.makedirs(output_dir)
+            print(f"Création du dossier: {output_dir}")
 
-        # Generate pixel data
-        print("Génération des données d'image...")
-        pixel_data = generate_pixel_data(args.num_images, width, height, args.seed)
+        # Generate shared UIDs for the series
+        study_uid = generate_uid()
+        series_uid = generate_uid()
 
-        # Add pixel data to dataset
-        # Flatten to 1D array as DICOM expects
-        ds.PixelData = pixel_data.tobytes()
+        print(f"Génération de {args.num_images} fichiers DICOM...")
 
-        # Write DICOM file
-        print(f"Écriture du fichier DICOM: {args.output}")
-        ds.save_as(args.output, write_like_original=False)
+        # Set seed for reproducibility if specified
+        if args.seed is not None:
+            np.random.seed(args.seed)
+            random.seed(args.seed)
 
-        # Get actual file size
-        actual_size = os.path.getsize(args.output)
-        print(f"Fichier DICOM créé: {args.output}")
-        print(f"Taille réelle: {format_bytes(actual_size)}")
+        total_size = 0
+
+        # Generate each DICOM file
+        for i in range(1, args.num_images + 1):
+            # Generate metadata for this instance
+            ds = generate_metadata(
+                num_images=args.num_images,
+                width=width,
+                height=height,
+                instance_number=i,
+                study_uid=study_uid,
+                series_uid=series_uid
+            )
+
+            # Generate pixel data for this single image
+            pixel_data = generate_single_image(width, height)
+
+            # Add pixel data to dataset
+            ds.PixelData = pixel_data.tobytes()
+
+            # Write DICOM file
+            filename = f"IMG{i:04d}.dcm"
+            filepath = os.path.join(output_dir, filename)
+            ds.save_as(filepath, write_like_original=False)
+
+            total_size += os.path.getsize(filepath)
+
+            # Progress indicator
+            if i % 10 == 0 or i == args.num_images:
+                progress = (i / args.num_images) * 100
+                print(f"  Progression: {i}/{args.num_images} ({progress:.0f}%)")
+
+        print(f"\n✓ {args.num_images} fichiers DICOM créés dans: {output_dir}/")
+        print(f"  Taille totale: {format_bytes(total_size)}")
 
         return 0
 
