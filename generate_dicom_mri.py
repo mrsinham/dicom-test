@@ -12,6 +12,7 @@ from pydicom.uid import generate_uid, ExplicitVRLittleEndian
 from datetime import datetime
 import random
 import numpy as np
+import argparse
 
 
 def parse_size(size_str):
@@ -199,3 +200,60 @@ def generate_pixel_data(num_images, width, height, seed=None):
     pixel_data = np.random.randint(0, 4096, size=(num_images, height, width), dtype=np.uint16)
 
     return pixel_data
+
+
+def parse_arguments(argv=None):
+    """
+    Parse command line arguments.
+
+    Args:
+        argv: List of arguments (for testing), None uses sys.argv
+
+    Returns:
+        argparse.Namespace: Parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description='Générer des fichiers DICOM d\'IRM multi-frame pour tests',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemples:
+  %(prog)s --num-images 120 --total-size 4.5GB
+  %(prog)s --num-images 50 --total-size 1GB --output test.dcm --seed 42
+        """
+    )
+
+    parser.add_argument(
+        '--num-images',
+        type=int,
+        required=True,
+        help='Nombre d\'images/coupes dans la série'
+    )
+
+    parser.add_argument(
+        '--total-size',
+        type=str,
+        required=True,
+        help='Taille totale cible (ex: 100MB, 4.5GB)'
+    )
+
+    parser.add_argument(
+        '--output',
+        type=str,
+        default='generated_mri.dcm',
+        help='Nom du fichier de sortie (défaut: generated_mri.dcm)'
+    )
+
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=None,
+        help='Seed pour la génération aléatoire (reproductibilité)'
+    )
+
+    args = parser.parse_args(argv)
+
+    # Validate num_images
+    if args.num_images <= 0:
+        parser.error("--num-images doit être > 0")
+
+    return args

@@ -186,3 +186,37 @@ def test_generate_pixel_data_different_without_seed():
 
     # Should be different (with very high probability)
     assert not np.array_equal(data1, data2)
+
+
+from generate_dicom_mri import parse_arguments
+
+
+def test_parse_arguments_required():
+    """Test required arguments."""
+    args = parse_arguments(['--num-images', '120', '--total-size', '4.5GB'])
+
+    assert args.num_images == 120
+    assert args.total_size == '4.5GB'
+    assert args.output == 'generated_mri.dcm'  # default
+    assert args.seed is None  # default
+
+
+def test_parse_arguments_all_options():
+    """Test all arguments including optional."""
+    args = parse_arguments([
+        '--num-images', '50',
+        '--total-size', '1GB',
+        '--output', 'test.dcm',
+        '--seed', '42'
+    ])
+
+    assert args.num_images == 50
+    assert args.total_size == '1GB'
+    assert args.output == 'test.dcm'
+    assert args.seed == 42
+
+
+def test_parse_arguments_missing_required():
+    """Test error when missing required arguments."""
+    with pytest.raises(SystemExit):
+        parse_arguments(['--num-images', '10'])  # missing --total-size
