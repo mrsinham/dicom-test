@@ -16,6 +16,7 @@ import argparse
 import sys
 import os
 from pydicom.fileset import FileSet
+from PIL import Image, ImageDraw, ImageFont
 
 
 def parse_size(size_str):
@@ -243,14 +244,16 @@ def generate_pixel_data(num_images, width, height, seed=None):
     return pixel_data
 
 
-def generate_single_image(width, height, seed=None):
+def generate_single_image(width, height, seed=None, image_number=None, total_images=None):
     """
-    Generate random pixel data for a single MRI image.
+    Generate random pixel data for a single MRI image with optional text overlay.
 
     Args:
         width: Image width
         height: Image height
         seed: Optional random seed for reproducibility
+        image_number: Current image number (for text overlay)
+        total_images: Total number of images (for text overlay)
 
     Returns:
         numpy.ndarray: Array of shape (height, width) with dtype uint16
@@ -260,6 +263,53 @@ def generate_single_image(width, height, seed=None):
 
     # Generate random noise in 12-bit range (0-4095) - typical for MRI
     pixel_data = np.random.randint(0, 4096, size=(height, width), dtype=np.uint16)
+
+    # Add text overlay if image number is provided
+    if image_number is not None and total_images is not None:
+        # Convert to PIL Image for text drawing
+        # Scale from 0-4095 to 0-65535 (16-bit) for better contrast
+        img_scaled = (pixel_data.astype(np.uint32) * 16).astype(np.uint16)
+        img_pil = Image.fromarray(img_scaled, mode='I;16')
+
+        # Convert to RGB for drawing (easier to draw text)
+        img_rgb = img_pil.convert('RGB')
+        draw = ImageDraw.Draw(img_rgb)
+
+        # Text to draw
+        text = f"File {image_number}/{total_images}"
+
+        # Try to use a larger font, fall back to default if not available
+        try:
+            font_size = max(int(height * 0.05), 20)  # 5% of image height, minimum 20
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except:
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", font_size)
+            except:
+                font = ImageFont.load_default()
+
+        # Calculate text position (top-left with padding)
+        padding = int(height * 0.02)  # 2% padding
+
+        # Draw text with white color and black outline for visibility
+        outline_color = (0, 0, 0)
+        text_color = (255, 255, 255)
+
+        # Draw outline
+        for dx, dy in [(-2,-2), (-2,2), (2,-2), (2,2), (-2,0), (2,0), (0,-2), (0,2)]:
+            draw.text((padding+dx, padding+dy), text, font=font, fill=outline_color)
+
+        # Draw main text
+        draw.text((padding, padding), text, font=font, fill=text_color)
+
+        # Convert back to grayscale and then to uint16
+        img_gray = img_rgb.convert('L')
+        pixel_data_with_text = np.array(img_gray, dtype=np.uint16)
+
+        # Scale back to 12-bit range (0-4095)
+        pixel_data = (pixel_data_with_text * 16).astype(np.uint16)
+        # Clip to ensure we stay in 12-bit range
+        pixel_data = np.clip(pixel_data, 0, 4095)
 
     return pixel_data
 
@@ -395,8 +445,13 @@ def main():
                 series_uid=series_uid
             )
 
-            # Generate pixel data for this single image
-            pixel_data = generate_single_image(width, height)
+            # Generate pixel data for this single image with text overlay
+            pixel_data = generate_single_image(
+                width,
+                height,
+                image_number=i,
+                total_images=args.num_images
+            )
 
             # Add pixel data to dataset
             ds.PixelData = pixel_data.tobytes()
