@@ -86,12 +86,12 @@ def calculate_dimensions(total_size_bytes, num_images):
     # Calculate square dimension
     dim = int(math.sqrt(pixels_per_frame))
 
-    # Round to nearest multiple of 256 for realistic MRI dimensions
-    # But use 128 if result would be too small
+    # Round DOWN to nearest multiple of 256 for realistic MRI dimensions
+    # Important: must round down to ensure we don't exceed size limit
     if dim >= 256:
-        dim = round(dim / 256) * 256
+        dim = (dim // 256) * 256  # Floor division to round down
     elif dim >= 128:
-        dim = round(dim / 128) * 128
+        dim = (dim // 128) * 128
 
     # Ensure minimum size
     dim = max(dim, 128)
