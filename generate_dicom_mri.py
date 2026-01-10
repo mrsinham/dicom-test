@@ -474,21 +474,28 @@ def main():
         # Create DICOMDIR file
         print("\nCréation du fichier DICOMDIR...")
         try:
+            # Create empty FileSet
             fs = FileSet()
 
-            # Add all DICOM files to the fileset
+            # Add all DICOM files to the fileset (using absolute paths)
             for i in range(1, args.num_images + 1):
                 filename = f"IMG{i:04d}.dcm"
                 filepath = os.path.join(output_dir, filename)
                 fs.add(filepath)
 
-            # Write DICOMDIR
-            dicomdir_path = os.path.join(output_dir, "DICOMDIR")
-            fs.write(dicomdir_path)
+            # Write DICOMDIR to the output directory
+            # This will create the DICOMDIR file and the standard hierarchy
+            fs.write(output_dir)
 
-            print(f"✓ DICOMDIR créé: {dicomdir_path}")
+            print(f"✓ DICOMDIR créé avec structure hiérarchique standard")
             print(f"\nLa série DICOM est prête à être importée!")
-            print(f"Importez le dossier complet: {output_dir}/")
+            print(f"Importez le dossier complet: {os.path.abspath(output_dir)}/")
+            print(f"\nNote: pydicom a créé une structure DICOM standard avec:")
+            print(f"  - DICOMDIR (fichier index)")
+            print(f"  - PT000000/ST000000/SE000000/ (hiérarchie patient/study/series)")
+            print(f"\nPour ouvrir dans un visualiseur DICOM (ex: Weasis):")
+            print(f"  1. Ouvrez le dossier principal: {os.path.abspath(output_dir)}")
+            print(f"  2. Le visualiseur devrait détecter automatiquement le DICOMDIR")
 
         except Exception as e:
             print(f"Attention: Erreur lors de la création du DICOMDIR: {e}")
