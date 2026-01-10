@@ -6,6 +6,7 @@ Generate valid DICOM multi-frame MRI files for testing medical interfaces.
 
 import re
 import math
+import hashlib
 import pydicom
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import generate_uid, ExplicitVRLittleEndian
@@ -17,6 +18,42 @@ import sys
 import os
 from pydicom.fileset import FileSet
 from PIL import Image, ImageDraw, ImageFont
+
+
+def generate_deterministic_uid(seed_string):
+    """
+    Generate a deterministic DICOM UID from a seed string.
+
+    Args:
+        seed_string: String to use as seed for UID generation
+
+    Returns:
+        str: Valid DICOM UID
+    """
+    # Use pydicom's prefix for compatibility
+    # DICOM UID format: prefix.suffix where suffix is numeric
+    prefix = "1.2.826.0.1.3680043.8.498"
+
+    # Generate a hash from the seed string
+    hash_obj = hashlib.sha256(seed_string.encode())
+    hash_hex = hash_obj.hexdigest()
+
+    # Convert hash to numeric string (take first 40 hex chars = 160 bits)
+    # Split into segments for better readability
+    numeric_suffix = str(int(hash_hex[:40], 16))
+
+    # Create segments to avoid too long numbers (max UID length is 64 chars)
+    # Split the number into 4-digit segments
+    segments = [numeric_suffix[i:i+12] for i in range(0, len(numeric_suffix), 12)]
+    suffix = '.'.join(segments[:4])  # Take first 4 segments
+
+    uid = f"{prefix}.{suffix}"
+
+    # Ensure UID is not too long (max 64 chars)
+    if len(uid) > 64:
+        uid = uid[:64].rstrip('.')
+
+    return uid
 
 
 def parse_size(size_str):
@@ -101,7 +138,13 @@ def calculate_dimensions(total_size_bytes, num_images):
     return dim, dim
 
 
-def generate_metadata(num_images, width, height, instance_number=None, study_uid=None, series_uid=None):
+def generate_metadata(num_images, width, height, instance_number=None, study_uid=None, series_uid=None,
+                      patient_id=None, patient_name=None, patient_birth_date=None, patient_sex=None,
+                      study_date=None, study_time=None, study_id=None, study_description=None,
+                      accession_number=None, series_number=1,
+                      pixel_spacing=None, slice_thickness=None, spacing_between_slices=None,
+                      echo_time=None, repetition_time=None, flip_angle=None, sequence_name=None,
+                      manufacturer=None, model=None, field_strength=None):
     """
     Generate DICOM dataset with realistic MRI metadata.
 
@@ -112,6 +155,16 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
         instance_number: Instance number for this image (1-based)
         study_uid: Shared Study Instance UID (if None, generates new)
         series_uid: Shared Series Instance UID (if None, generates new)
+        patient_id: Shared Patient ID (if None, generates new)
+        patient_name: Shared Patient Name (if None, generates new)
+        patient_birth_date: Shared Patient Birth Date (if None, generates new)
+        patient_sex: Shared Patient Sex (if None, generates new)
+        study_date: Shared Study Date (if None, uses current date)
+        study_time: Shared Study Time (if None, uses current time)
+        study_id: Shared Study ID (if None, generates new)
+        study_description: Shared Study Description (if None, generates new)
+        accession_number: Shared Accession Number (if None, generates new)
+        series_number: Series Number (default: 1)
 
     Returns:
         pydicom.Dataset: Dataset with metadata
@@ -127,23 +180,28 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
     ds = Dataset()
     ds.file_meta = file_meta
 
-    # Patient information
-    ds.PatientName = f"TEST^PATIENT^{random.randint(1000, 9999)}"
-    ds.PatientID = f"PID{random.randint(100000, 999999)}"
-    ds.PatientBirthDate = f"{random.randint(1950, 2000):04d}{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
-    ds.PatientSex = random.choice(['M', 'F'])
+    # Patient information (shared across all instances for same patient)
+    ds.PatientName = patient_name if patient_name else f"TEST^PATIENT^{random.randint(1000, 9999)}"
+    ds.PatientID = patient_id if patient_id else f"PID{random.randint(100000, 999999)}"
+    ds.PatientBirthDate = patient_birth_date if patient_birth_date else f"{random.randint(1950, 2000):04d}{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
+    ds.PatientSex = patient_sex if patient_sex else random.choice(['M', 'F'])
 
-    # Study information
+    # Study information (shared across all instances in same study)
     ds.StudyInstanceUID = study_uid if study_uid else generate_uid()
-    now = datetime.now()
-    ds.StudyDate = now.strftime('%Y%m%d')
-    ds.StudyTime = now.strftime('%H%M%S')
-    ds.StudyID = f"STD{random.randint(1000, 9999)}"
-    ds.AccessionNumber = f"ACC{random.randint(100000, 999999)}"
+    if study_date and study_time:
+        ds.StudyDate = study_date
+        ds.StudyTime = study_time
+    else:
+        now = datetime.now()
+        ds.StudyDate = now.strftime('%Y%m%d')
+        ds.StudyTime = now.strftime('%H%M%S')
+    ds.StudyID = study_id if study_id else f"STD{random.randint(1000, 9999)}"
+    ds.StudyDescription = study_description if study_description else "Test MRI Study"
+    ds.AccessionNumber = accession_number if accession_number else f"ACC{random.randint(100000, 999999)}"
 
-    # Series information
+    # Series information (shared across all instances in same series)
     ds.SeriesInstanceUID = series_uid if series_uid else generate_uid()
-    ds.SeriesNumber = 1
+    ds.SeriesNumber = series_number
     ds.SeriesDescription = f"Test MRI Series - {num_images} images"
     ds.Modality = 'MR'
 
@@ -155,16 +213,17 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
     ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
     ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
 
-    # MRI-specific parameters
-    manufacturers = [
-        ('SIEMENS', 'Avanto', 1.5),
-        ('SIEMENS', 'Skyra', 3.0),
-        ('GE MEDICAL SYSTEMS', 'Signa HDxt', 1.5),
-        ('GE MEDICAL SYSTEMS', 'Discovery MR750', 3.0),
-        ('PHILIPS', 'Achieva', 1.5),
-        ('PHILIPS', 'Ingenia', 3.0)
-    ]
-    manufacturer, model, field_strength = random.choice(manufacturers)
+    # MRI-specific parameters (shared across all images in series)
+    if manufacturer is None or model is None or field_strength is None:
+        manufacturers = [
+            ('SIEMENS', 'Avanto', 1.5),
+            ('SIEMENS', 'Skyra', 3.0),
+            ('GE MEDICAL SYSTEMS', 'Signa HDxt', 1.5),
+            ('GE MEDICAL SYSTEMS', 'Discovery MR750', 3.0),
+            ('PHILIPS', 'Achieva', 1.5),
+            ('PHILIPS', 'Ingenia', 3.0)
+        ]
+        manufacturer, model, field_strength = random.choice(manufacturers)
 
     ds.Manufacturer = manufacturer
     ds.ManufacturerModelName = model
@@ -174,13 +233,13 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
     # 1.5T ≈ 63.87 MHz, 3.0T ≈ 127.74 MHz for protons
     ds.ImagingFrequency = field_strength * 42.58  # MHz (gyromagnetic ratio)
 
-    # Sequence parameters (realistic T1-weighted values)
-    ds.EchoTime = random.uniform(10, 30)  # ms
-    ds.RepetitionTime = random.uniform(400, 800)  # ms
-    ds.FlipAngle = random.uniform(60, 90)  # degrees
-    ds.SliceThickness = random.uniform(1.0, 5.0)  # mm
-    ds.SpacingBetweenSlices = ds.SliceThickness + random.uniform(0, 0.5)  # mm
-    ds.SequenceName = random.choice(['T1_MPRAGE', 'T1_SE', 'T2_FSE', 'T2_FLAIR'])
+    # Sequence parameters (realistic T1-weighted values) - MUST be same for all images in series!
+    ds.EchoTime = echo_time if echo_time is not None else random.uniform(10, 30)  # ms
+    ds.RepetitionTime = repetition_time if repetition_time is not None else random.uniform(400, 800)  # ms
+    ds.FlipAngle = flip_angle if flip_angle is not None else random.uniform(60, 90)  # degrees
+    ds.SliceThickness = slice_thickness if slice_thickness is not None else random.uniform(1.0, 5.0)  # mm
+    ds.SpacingBetweenSlices = spacing_between_slices if spacing_between_slices is not None else (ds.SliceThickness + random.uniform(0, 0.5))  # mm
+    ds.SequenceName = sequence_name if sequence_name is not None else random.choice(['T1_MPRAGE', 'T1_SE', 'T2_FSE', 'T2_FLAIR'])
 
     # Image parameters (single frame per file)
     ds.SamplesPerPixel = 1
@@ -192,8 +251,9 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
     ds.HighBit = 15
     ds.PixelRepresentation = 0  # unsigned
 
-    # Pixel spacing (typical MRI: 0.5-2mm)
-    pixel_spacing = random.uniform(0.5, 2.0)
+    # Pixel spacing (typical MRI: 0.5-2mm) - MUST be same for all images in series!
+    if pixel_spacing is None:
+        pixel_spacing = random.uniform(0.5, 2.0)
     ds.PixelSpacing = [pixel_spacing, pixel_spacing]
 
     # Image Position and Orientation (for 3D reconstruction)
@@ -203,6 +263,8 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
         ds.ImagePositionPatient = [0.0, 0.0, slice_position]
         # Standard axial orientation
         ds.ImageOrientationPatient = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+        # Slice Location - critical for medical viewers to create scrollable stack
+        ds.SliceLocation = slice_position
 
     # Window Center and Window Width (for display)
     # These are critical for image visualization in medical viewers
@@ -280,7 +342,7 @@ def generate_single_image(width, height, seed=None, image_number=None, total_ima
 
         # Try to use a larger font, fall back to default if not available
         try:
-            font_size = max(int(height * 0.05), 20)  # 5% of image height, minimum 20
+            font_size = max(int(height * 0.15), 50)  # 15% of image height, minimum 50 (much larger!)
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
         except:
             try:
@@ -289,7 +351,7 @@ def generate_single_image(width, height, seed=None, image_number=None, total_ima
                 font = ImageFont.load_default()
 
         # Calculate text position (top-left with padding)
-        padding = int(height * 0.02)  # 2% padding
+        padding = int(height * 0.03)  # 3% padding
 
         # Draw text with white color and black outline for visibility
         outline_color = (0, 0, 0)
@@ -329,8 +391,14 @@ def parse_arguments(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemples:
+  # Générer 120 images dans 1 étude (défaut)
   %(prog)s --num-images 120 --total-size 4.5GB
-  %(prog)s --num-images 50 --total-size 1GB --output test.dcm --seed 42
+
+  # Générer 120 images réparties dans 3 études
+  %(prog)s --num-images 120 --total-size 1GB --num-studies 3
+
+  # Avec seed pour reproductibilité
+  %(prog)s --num-images 50 --total-size 1GB --output patient-test --seed 42
         """
     )
 
@@ -362,11 +430,25 @@ Exemples:
         help='Seed pour la génération aléatoire (reproductibilité)'
     )
 
+    parser.add_argument(
+        '--num-studies',
+        type=int,
+        default=1,
+        help='Nombre d\'études (studies) à générer (défaut: 1). Les images seront réparties équitablement.'
+    )
+
     args = parser.parse_args(argv)
 
     # Validate num_images
     if args.num_images <= 0:
         parser.error("--num-images doit être > 0")
+
+    # Validate num_studies
+    if args.num_studies <= 0:
+        parser.error("--num-studies doit être > 0")
+
+    if args.num_studies > args.num_images:
+        parser.error(f"--num-studies ({args.num_studies}) ne peut pas être supérieur à --num-images ({args.num_images})")
 
     return args
 
@@ -420,56 +502,144 @@ def main():
             os.makedirs(output_dir)
             print(f"Création du dossier: {output_dir}")
 
-        # Generate shared UIDs for the series
-        study_uid = generate_uid()
-        series_uid = generate_uid()
+        # Set seed for reproducibility
+        # If no seed specified, generate one from output directory name for consistency
+        if args.seed is not None:
+            seed = args.seed
+            print(f"Utilisation du seed: {seed}")
+        else:
+            # Generate deterministic seed from output directory name
+            # This ensures same directory name = same patient/study IDs
+            seed = abs(hash(output_dir)) % (2**31)
+            print(f"Génération automatique du seed basé sur '{output_dir}': {seed}")
+            print("  (même dossier = mêmes IDs patient/study)")
+
+        np.random.seed(seed)
+        random.seed(seed)
+
+        # Generate shared Patient info for all studies (same patient, different exams)
+        patient_id = f"PID{random.randint(100000, 999999)}"
+        patient_name = f"TEST^PATIENT^{random.randint(1000, 9999)}"
+        patient_birth_date = f"{random.randint(1950, 2000):04d}{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
+        patient_sex = random.choice(['M', 'F'])
 
         print(f"Génération de {args.num_images} fichiers DICOM...")
+        print(f"Patient: {patient_name} (ID: {patient_id}, né le {patient_birth_date}, sexe {patient_sex})")
+        print(f"Nombre d'études: {args.num_studies}")
 
-        # Set seed for reproducibility if specified
-        if args.seed is not None:
-            np.random.seed(args.seed)
-            random.seed(args.seed)
+        # Calculate images per study
+        images_per_study = args.num_images // args.num_studies
+        remaining_images = args.num_images % args.num_studies
 
         total_size = 0
+        global_image_index = 1
 
-        # Generate each DICOM file
-        for i in range(1, args.num_images + 1):
-            # Generate metadata for this instance
-            ds = generate_metadata(
-                num_images=args.num_images,
-                width=width,
-                height=height,
-                instance_number=i,
-                study_uid=study_uid,
-                series_uid=series_uid
-            )
+        # Generate DICOM files for each study
+        for study_num in range(1, args.num_studies + 1):
+            # Generate DETERMINISTIC UIDs for this study based on output_dir and study_num
+            # This ensures same directory + same study number = same UIDs!
+            study_uid = generate_deterministic_uid(f"{output_dir}_study_{study_num}")
+            series_uid = generate_deterministic_uid(f"{output_dir}_study_{study_num}_series_1")
 
-            # Generate pixel data for this single image with text overlay
-            pixel_data = generate_single_image(
-                width,
-                height,
-                image_number=i,
-                total_images=args.num_images
-            )
+            # Generate study-specific info (same for all images in this study)
+            study_date = datetime.now().strftime('%Y%m%d')
+            study_time = datetime.now().strftime('%H%M%S')
+            study_id = f"STD{random.randint(1000, 9999)}"
+            study_description = f"Brain MRI - Study {study_num}" if args.num_studies > 1 else "Brain MRI"
+            accession_number = f"ACC{random.randint(100000, 999999)}"
 
-            # Add pixel data to dataset
-            ds.PixelData = pixel_data.tobytes()
+            # Generate series-specific acquisition parameters (SAME for all images in series!)
+            # These MUST be identical for all images to be grouped together in DICOM viewers
+            series_pixel_spacing = random.uniform(0.5, 2.0)
+            series_slice_thickness = random.uniform(1.0, 5.0)
+            series_spacing_between_slices = series_slice_thickness + random.uniform(0, 0.5)
+            series_echo_time = random.uniform(10, 30)
+            series_repetition_time = random.uniform(400, 800)
+            series_flip_angle = random.uniform(60, 90)
+            series_sequence_name = random.choice(['T1_MPRAGE', 'T1_SE', 'T2_FSE', 'T2_FLAIR'])
 
-            # Write DICOM file
-            filename = f"IMG{i:04d}.dcm"
-            filepath = os.path.join(output_dir, filename)
-            ds.save_as(filepath, write_like_original=False)
+            # MRI scanner info (same for all images in series)
+            manufacturers = [
+                ('SIEMENS', 'Avanto', 1.5),
+                ('SIEMENS', 'Skyra', 3.0),
+                ('GE MEDICAL SYSTEMS', 'Signa HDxt', 1.5),
+                ('GE MEDICAL SYSTEMS', 'Discovery MR750', 3.0),
+                ('PHILIPS', 'Achieva', 1.5),
+                ('PHILIPS', 'Ingenia', 3.0)
+            ]
+            series_manufacturer, series_model, series_field_strength = random.choice(manufacturers)
 
-            total_size += os.path.getsize(filepath)
+            # Calculate how many images for this study
+            # Distribute remaining images to first studies
+            num_images_this_study = images_per_study + (1 if study_num <= remaining_images else 0)
 
-            # Progress indicator
-            if i % 10 == 0 or i == args.num_images:
-                progress = (i / args.num_images) * 100
-                print(f"  Progression: {i}/{args.num_images} ({progress:.0f}%)")
+            print(f"\nÉtude {study_num}/{args.num_studies}: {num_images_this_study} images")
+            print(f"  StudyID: {study_id}, Description: {study_description}")
+            print(f"  Scanner: {series_manufacturer} {series_model} ({series_field_strength}T)")
+            print(f"  Paramètres: PixelSpacing={series_pixel_spacing:.2f}mm, SliceThickness={series_slice_thickness:.2f}mm")
+
+            # Generate each DICOM file for this study
+            for instance_in_study in range(1, num_images_this_study + 1):
+                # Generate metadata for this instance
+                ds = generate_metadata(
+                    num_images=num_images_this_study,
+                    width=width,
+                    height=height,
+                    instance_number=instance_in_study,
+                    study_uid=study_uid,
+                    series_uid=series_uid,
+                    patient_id=patient_id,
+                    patient_name=patient_name,
+                    patient_birth_date=patient_birth_date,
+                    patient_sex=patient_sex,
+                    study_date=study_date,
+                    study_time=study_time,
+                    study_id=study_id,
+                    study_description=study_description,
+                    accession_number=accession_number,
+                    series_number=1,
+                    # Series acquisition parameters (SAME for all images!)
+                    pixel_spacing=series_pixel_spacing,
+                    slice_thickness=series_slice_thickness,
+                    spacing_between_slices=series_spacing_between_slices,
+                    echo_time=series_echo_time,
+                    repetition_time=series_repetition_time,
+                    flip_angle=series_flip_angle,
+                    sequence_name=series_sequence_name,
+                    manufacturer=series_manufacturer,
+                    model=series_model,
+                    field_strength=series_field_strength
+                )
+
+                # Generate pixel data for this single image with text overlay
+                pixel_data = generate_single_image(
+                    width,
+                    height,
+                    image_number=global_image_index,
+                    total_images=args.num_images
+                )
+
+                # Add pixel data to dataset
+                ds.PixelData = pixel_data.tobytes()
+
+                # Write DICOM file
+                filename = f"IMG{global_image_index:04d}.dcm"
+                filepath = os.path.join(output_dir, filename)
+                ds.save_as(filepath, write_like_original=False)
+
+                total_size += os.path.getsize(filepath)
+
+                # Progress indicator
+                if global_image_index % 10 == 0 or global_image_index == args.num_images:
+                    progress = (global_image_index / args.num_images) * 100
+                    print(f"  Progression: {global_image_index}/{args.num_images} ({progress:.0f}%)")
+
+                global_image_index += 1
 
         print(f"\n✓ {args.num_images} fichiers DICOM créés dans: {output_dir}/")
         print(f"  Taille totale: {format_bytes(total_size)}")
+        if args.num_studies > 1:
+            print(f"  Répartis en {args.num_studies} études (studies)")
 
         # Create DICOMDIR file
         print("\nCréation du fichier DICOMDIR...")
@@ -485,12 +655,25 @@ def main():
 
             # Write DICOMDIR to the output directory
             # This will create the DICOMDIR file and the standard hierarchy
+            # IMPORTANT: pydicom copies files into PT*/ST*/SE* hierarchy
             fs.write(output_dir)
 
             print(f"✓ DICOMDIR créé avec structure hiérarchique standard")
+
+            # Remove original IMG*.dcm files from root (they're now in PT*/ST*/SE* hierarchy)
+            print(f"\nNettoyage des fichiers temporaires...")
+            removed_count = 0
+            for i in range(1, args.num_images + 1):
+                filename = f"IMG{i:04d}.dcm"
+                filepath = os.path.join(output_dir, filename)
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                    removed_count += 1
+
+            print(f"✓ {removed_count} fichiers temporaires supprimés")
             print(f"\nLa série DICOM est prête à être importée!")
             print(f"Importez le dossier complet: {os.path.abspath(output_dir)}/")
-            print(f"\nNote: pydicom a créé une structure DICOM standard avec:")
+            print(f"\nStructure DICOM standard créée:")
             print(f"  - DICOMDIR (fichier index)")
             print(f"  - PT000000/ST000000/SE000000/ (hiérarchie patient/study/series)")
             print(f"\nPour ouvrir dans un visualiseur DICOM (ex: Weasis):")
