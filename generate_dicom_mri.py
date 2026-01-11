@@ -7,6 +7,7 @@ Generate valid DICOM multi-frame MRI files for testing medical interfaces.
 import re
 import math
 import hashlib
+import glob
 import pydicom
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import generate_uid, ExplicitVRLittleEndian
@@ -28,7 +29,7 @@ def generate_deterministic_uid(seed_string):
         seed_string: String to use as seed for UID generation
 
     Returns:
-        str: Valid DICOM UID
+        str: Valid DICOM UID (max 64 chars, no leading zeros in components)
     """
     # Use pydicom's prefix for compatibility
     # DICOM UID format: prefix.suffix where suffix is numeric
@@ -38,22 +39,84 @@ def generate_deterministic_uid(seed_string):
     hash_obj = hashlib.sha256(seed_string.encode())
     hash_hex = hash_obj.hexdigest()
 
-    # Convert hash to numeric string (take first 40 hex chars = 160 bits)
-    # Split into segments for better readability
-    numeric_suffix = str(int(hash_hex[:40], 16))
+    # Convert hash to numeric string (take first 30 hex chars to keep UID shorter)
+    numeric_suffix = str(int(hash_hex[:30], 16))
 
-    # Create segments to avoid too long numbers (max UID length is 64 chars)
-    # Split the number into 4-digit segments
-    segments = [numeric_suffix[i:i+12] for i in range(0, len(numeric_suffix), 12)]
-    suffix = '.'.join(segments[:4])  # Take first 4 segments
+    # Create segments, ensuring no segment starts with 0 (DICOM requirement)
+    # Split into 10-digit segments
+    segments = []
+    for i in range(0, len(numeric_suffix), 10):
+        segment = numeric_suffix[i:i+10]
+        # Ensure segment doesn't start with 0 (unless it's just "0")
+        if segment and segment != "0" and segment[0] == "0":
+            segment = segment.lstrip("0") or "1"  # Remove leading zeros, use "1" if all zeros
+        if segment:
+            segments.append(segment)
+        if len(segments) >= 3:  # Limit to 3 segments after prefix
+            break
 
+    suffix = '.'.join(segments)
     uid = f"{prefix}.{suffix}"
 
     # Ensure UID is not too long (max 64 chars)
     if len(uid) > 64:
-        uid = uid[:64].rstrip('.')
+        # Truncate last segment to fit
+        uid = uid[:63]
+        # Remove trailing dot if any
+        uid = uid.rstrip('.')
 
     return uid
+
+
+def generate_patient_name(sex):
+    """
+    Generate a realistic patient name based on sex.
+
+    Args:
+        sex: 'M' or 'F'
+
+    Returns:
+        str: Patient name in DICOM format (LASTNAME^FIRSTNAME)
+    """
+    # Prénoms masculins
+    male_first_names = [
+        'Jean', 'Pierre', 'Michel', 'André', 'Philippe', 'Alain', 'Bernard', 'Jacques',
+        'François', 'Christian', 'Daniel', 'Patrick', 'Nicolas', 'Olivier', 'Laurent',
+        'Thierry', 'Stéphane', 'Éric', 'David', 'Julien', 'Christophe', 'Pascal',
+        'Sébastien', 'Marc', 'Vincent', 'Antoine', 'Alexandre', 'Maxime', 'Thomas',
+        'Lucas', 'Hugo', 'Louis', 'Arthur', 'Gabriel', 'Raphaël', 'Paul', 'Jules'
+    ]
+
+    # Prénoms féminins
+    female_first_names = [
+        'Marie', 'Nathalie', 'Isabelle', 'Sylvie', 'Catherine', 'Françoise', 'Valérie',
+        'Christine', 'Monique', 'Sophie', 'Patricia', 'Martine', 'Nicole', 'Sandrine',
+        'Stéphanie', 'Céline', 'Julie', 'Aurélie', 'Caroline', 'Laurence', 'Émilie',
+        'Claire', 'Anne', 'Camille', 'Laura', 'Sarah', 'Manon', 'Emma', 'Léa',
+        'Chloé', 'Zoé', 'Alice', 'Charlotte', 'Lucie', 'Juliette', 'Louise'
+    ]
+
+    # Noms de famille (neutres)
+    last_names = [
+        'Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit',
+        'Durand', 'Leroy', 'Moreau', 'Simon', 'Laurent', 'Lefebvre', 'Michel',
+        'Garcia', 'David', 'Bertrand', 'Roux', 'Vincent', 'Fournier', 'Morel',
+        'Girard', 'André', 'Lefevre', 'Mercier', 'Dupont', 'Lambert', 'Bonnet',
+        'François', 'Martinez', 'Legrand', 'Garnier', 'Faure', 'Rousseau', 'Blanc',
+        'Guerin', 'Muller', 'Henry', 'Roussel', 'Nicolas', 'Perrin', 'Morin',
+        'Mathieu', 'Clement', 'Gauthier', 'Dumont', 'Lopez', 'Fontaine', 'Chevalier',
+        'Robin', 'Masson', 'Sanchez', 'Gerard', 'Nguyen', 'Boyer', 'Denis', 'Lemaire'
+    ]
+
+    if sex == 'M':
+        first_name = random.choice(male_first_names)
+    else:  # 'F'
+        first_name = random.choice(female_first_names)
+
+    last_name = random.choice(last_names)
+
+    # DICOM format: LASTNAME^FIRSTNAME
+    return f"{last_name}^{first_name}"
 
 
 def parse_size(size_str):
@@ -179,6 +242,10 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
     # Create main dataset
     ds = Dataset()
     ds.file_meta = file_meta
+
+    # Specify character set for proper encoding of accented characters
+    # ISO_IR 192 = UTF-8
+    ds.SpecificCharacterSet = 'ISO_IR 192'
 
     # Patient information (shared across all instances for same patient)
     ds.PatientName = patient_name if patient_name else f"TEST^PATIENT^{random.randint(1000, 9999)}"
@@ -306,7 +373,7 @@ def generate_pixel_data(num_images, width, height, seed=None):
     return pixel_data
 
 
-def generate_single_image(width, height, seed=None, image_number=None, total_images=None):
+def generate_single_image(width, height, seed=None, image_number=None, total_images=None, font=None):
     """
     Generate random pixel data for a single MRI image with optional text overlay.
 
@@ -316,6 +383,7 @@ def generate_single_image(width, height, seed=None, image_number=None, total_ima
         seed: Optional random seed for reproducibility
         image_number: Current image number (for text overlay)
         total_images: Total number of images (for text overlay)
+        font: Pre-loaded PIL font (to avoid reloading on each image)
 
     Returns:
         numpy.ndarray: Array of shape (height, width) with dtype uint16
@@ -340,29 +408,33 @@ def generate_single_image(width, height, seed=None, image_number=None, total_ima
         # Text to draw
         text = f"File {image_number}/{total_images}"
 
-        # Try to use a larger font, fall back to default if not available
-        try:
-            font_size = max(int(height * 0.15), 50)  # 15% of image height, minimum 50 (much larger!)
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-        except:
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", font_size)
-            except:
-                font = ImageFont.load_default()
+        # Use pre-loaded font if provided, otherwise use default
+        if font is None:
+            font = ImageFont.load_default()
 
-        # Calculate text position (top-left with padding)
-        padding = int(height * 0.03)  # 3% padding
+        # Get text bounding box for centering
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
 
-        # Draw text with white color and black outline for visibility
+        # Calculate position: centered horizontally, near top
+        padding_top = int(height * 0.05)  # 5% from top
+        x = (width - text_width) // 2  # Center horizontally
+        y = padding_top
+
+        # Draw text with white color and thick black outline for visibility
         outline_color = (0, 0, 0)
         text_color = (255, 255, 255)
+        outline_thickness = max(3, int(text_height * 0.05))  # 5% of text height
 
-        # Draw outline
-        for dx, dy in [(-2,-2), (-2,2), (2,-2), (2,2), (-2,0), (2,0), (0,-2), (0,2)]:
-            draw.text((padding+dx, padding+dy), text, font=font, fill=outline_color)
+        # Draw thick outline
+        for dx in range(-outline_thickness, outline_thickness + 1):
+            for dy in range(-outline_thickness, outline_thickness + 1):
+                if dx != 0 or dy != 0:  # Skip center
+                    draw.text((x + dx, y + dy), text, font=font, fill=outline_color)
 
         # Draw main text
-        draw.text((padding, padding), text, font=font, fill=text_color)
+        draw.text((x, y), text, font=font, fill=text_color)
 
         # Convert back to grayscale and then to uint16
         img_gray = img_rgb.convert('L')
@@ -519,9 +591,9 @@ def main():
 
         # Generate shared Patient info for all studies (same patient, different exams)
         patient_id = f"PID{random.randint(100000, 999999)}"
-        patient_name = f"TEST^PATIENT^{random.randint(1000, 9999)}"
-        patient_birth_date = f"{random.randint(1950, 2000):04d}{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
         patient_sex = random.choice(['M', 'F'])
+        patient_name = generate_patient_name(patient_sex)  # Generate realistic name based on sex
+        patient_birth_date = f"{random.randint(1950, 2000):04d}{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
 
         print(f"Génération de {args.num_images} fichiers DICOM...")
         print(f"Patient: {patient_name} (ID: {patient_id}, né le {patient_birth_date}, sexe {patient_sex})")
@@ -533,6 +605,33 @@ def main():
 
         total_size = 0
         global_image_index = 1
+
+        print("Chargement du font...")
+        # Load font once for all images (much faster than loading per image)
+        font_size = int(width / 16)  # Large font that's still performant
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        font_paths = [
+            # Font in project directory (portable solution)
+            os.path.join(script_dir, "DejaVuSans-Bold.ttf"),
+            # Standard Linux paths
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ]
+
+        font = None
+        for font_path in font_paths:
+            try:
+                if os.path.exists(font_path):
+                    font = ImageFont.truetype(font_path, font_size)
+                    print(f"✓ Loaded font: {font_path} (size: {font_size}px)")
+                    break
+            except Exception as e:
+                continue
+
+        if font is None:
+            print(f"Warning: Could not load TrueType font, using default (text may be small)")
+            font = ImageFont.load_default()
 
         # Generate DICOM files for each study
         for study_num in range(1, args.num_studies + 1):
@@ -616,7 +715,8 @@ def main():
                     width,
                     height,
                     image_number=global_image_index,
-                    total_images=args.num_images
+                    total_images=args.num_images,
+                    font=font
                 )
 
                 # Add pixel data to dataset
