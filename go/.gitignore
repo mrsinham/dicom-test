@@ -1,0 +1,19 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+cmd/generate-dicom-mri/generate-dicom-mri
+
+# Test outputs
+test-*/
+*.dcm
+DICOMDIR
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
