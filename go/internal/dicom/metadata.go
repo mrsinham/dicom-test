@@ -1,6 +1,8 @@
 package dicom
 
 import (
+	"fmt"
+
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
 )
@@ -39,8 +41,14 @@ type MetadataOptions struct {
 	FieldStrength        float64
 }
 
-// mustNewElement creates a DICOM element or panics on error
-// This simplifies element creation for test/development code
+// formatFloat converts a float64 to a string suitable for DICOM numeric tags
+func formatFloat(f float64) string {
+	return fmt.Sprintf("%f", f)
+}
+
+// mustNewElement creates a DICOM element or panics on error.
+// This simplifies element creation for test/development code.
+// Panics if the tag or data is invalid (should only happen with programming errors).
 func mustNewElement(t tag.Tag, data any) *dicom.Element {
 	elem, err := dicom.NewElement(t, data)
 	if err != nil {
@@ -49,8 +57,9 @@ func mustNewElement(t tag.Tag, data any) *dicom.Element {
 	return elem
 }
 
-// GenerateMetadata creates a DICOM dataset with realistic MRI metadata
-func GenerateMetadata(opts MetadataOptions) (*dicom.Dataset, error) {
+// GenerateMetadata creates a DICOM dataset with realistic MRI metadata.
+// Panics if invalid tag data is provided (should only happen with programming errors).
+func GenerateMetadata(opts MetadataOptions) *dicom.Dataset {
 	// Create new dataset
 	ds := &dicom.Dataset{
 		Elements: []*dicom.Element{},
@@ -99,5 +108,35 @@ func GenerateMetadata(opts MetadataOptions) (*dicom.Dataset, error) {
 		ds.Elements = append(ds.Elements, mustNewElement(tag.ManufacturerModelName, []string{opts.Model}))
 	}
 
-	return ds, nil
+	// MRI acquisition parameters (clinically significant)
+	if opts.PixelSpacing != 0 {
+		// PixelSpacing is stored as [row spacing, column spacing]
+		ds.Elements = append(ds.Elements, mustNewElement(tag.PixelSpacing, []string{
+			formatFloat(opts.PixelSpacing),
+			formatFloat(opts.PixelSpacing),
+		}))
+	}
+	if opts.SliceThickness != 0 {
+		ds.Elements = append(ds.Elements, mustNewElement(tag.SliceThickness, []string{formatFloat(opts.SliceThickness)}))
+	}
+	if opts.SpacingBetweenSlices != 0 {
+		ds.Elements = append(ds.Elements, mustNewElement(tag.SpacingBetweenSlices, []string{formatFloat(opts.SpacingBetweenSlices)}))
+	}
+	if opts.EchoTime != 0 {
+		ds.Elements = append(ds.Elements, mustNewElement(tag.EchoTime, []string{formatFloat(opts.EchoTime)}))
+	}
+	if opts.RepetitionTime != 0 {
+		ds.Elements = append(ds.Elements, mustNewElement(tag.RepetitionTime, []string{formatFloat(opts.RepetitionTime)}))
+	}
+	if opts.FlipAngle != 0 {
+		ds.Elements = append(ds.Elements, mustNewElement(tag.FlipAngle, []string{formatFloat(opts.FlipAngle)}))
+	}
+	if opts.SequenceName != "" {
+		ds.Elements = append(ds.Elements, mustNewElement(tag.SequenceName, []string{opts.SequenceName}))
+	}
+	if opts.FieldStrength != 0 {
+		ds.Elements = append(ds.Elements, mustNewElement(tag.MagneticFieldStrength, []string{formatFloat(opts.FieldStrength)}))
+	}
+
+	return ds
 }
