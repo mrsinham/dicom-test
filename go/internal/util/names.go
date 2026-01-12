@@ -1,6 +1,9 @@
 package util
 
-import "math/rand/v2"
+import (
+	"math/rand/v2"
+	"time"
+)
 
 var (
 	maleFirstNames = []string{
@@ -33,16 +36,21 @@ var (
 
 // GeneratePatientName generates a realistic French patient name based on sex.
 //
-// Sex should be "M" or "F". Returns name in DICOM format: "LASTNAME^FIRSTNAME"
-func GeneratePatientName(sex string) string {
-	var firstName string
-	if sex == "M" {
-		firstName = maleFirstNames[rand.IntN(len(maleFirstNames))]
-	} else {
-		firstName = femaleFirstNames[rand.IntN(len(femaleFirstNames))]
+// Sex should be "M" or "F". If rng is nil, uses global random.
+// Returns name in DICOM format: "LASTNAME^FIRSTNAME"
+func GeneratePatientName(sex string, rng *rand.Rand) string {
+	if rng == nil {
+		rng = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
 	}
 
-	lastName := lastNames[rand.IntN(len(lastNames))]
+	var firstName string
+	if sex == "M" {
+		firstName = maleFirstNames[rng.IntN(len(maleFirstNames))]
+	} else {
+		firstName = femaleFirstNames[rng.IntN(len(femaleFirstNames))]
+	}
+
+	lastName := lastNames[rng.IntN(len(lastNames))]
 
 	// DICOM format: LASTNAME^FIRSTNAME
 	return lastName + "^" + firstName
