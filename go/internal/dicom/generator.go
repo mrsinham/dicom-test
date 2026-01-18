@@ -98,6 +98,14 @@ func CalculateDimensions(totalBytes int64, numImages int) (width, height int, er
 
 // GenerateDICOMSeries generates a complete DICOM series with multiple studies
 func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
+	// Validate options
+	if opts.NumImages <= 0 {
+		return nil, fmt.Errorf("number of images must be > 0, got %d", opts.NumImages)
+	}
+	if opts.NumStudies <= 0 {
+		return nil, fmt.Errorf("number of studies must be > 0, got %d", opts.NumStudies)
+	}
+
 	// Parse total size
 	totalBytes, err := util.ParseSize(opts.TotalSize)
 	if err != nil {

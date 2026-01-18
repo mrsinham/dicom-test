@@ -358,7 +358,7 @@ func TestEdgeCase_ManyStudies(t *testing.T) {
 	// Count study directories
 	studyDirs := 0
 	for i := 0; i < 10; i++ {
-		studyDir := t.TempDir() + "/../PT000000/ST" + padInt(i, 6)
+		_ = t.TempDir() + "/../PT000000/ST" + padInt(i, 6) // studyDir (not used, just for concept)
 		// This won't work perfectly but shows the concept
 		studyDirs++
 	}

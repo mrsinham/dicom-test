@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -83,9 +84,10 @@ func TestUtil_GeneratePatientName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Generate multiple names to test variability
 			names := make(map[string]bool)
+			rng := rand.New(rand.NewPCG(42, 42))
 
 			for i := 0; i < 10; i++ {
-				name := util.GeneratePatientName(tt.sex)
+				name := util.GeneratePatientName(tt.sex, rng)
 
 				// Check format
 				if !strings.Contains(name, "^") {
@@ -217,6 +219,7 @@ func TestUtil_UIDUniqueness(t *testing.T) {
 // TestUtil_PatientNameFormat tests patient name format consistency
 func TestUtil_PatientNameFormat(t *testing.T) {
 	// Generate many names and check they all follow DICOM format
+	rng := rand.New(rand.NewPCG(42, 42))
 	for sex := range []string{"M", "F"} {
 		sexStr := "M"
 		if sex == 1 {
@@ -224,7 +227,7 @@ func TestUtil_PatientNameFormat(t *testing.T) {
 		}
 
 		for i := 0; i < 20; i++ {
-			name := util.GeneratePatientName(sexStr)
+			name := util.GeneratePatientName(sexStr, rng)
 
 			// Must contain exactly one ^
 			count := strings.Count(name, "^")
@@ -261,7 +264,7 @@ func TestUtil_SizeEdgeCases(t *testing.T) {
 		{name: "1MB", input: "1MB", want: 1024 * 1024},
 		{name: "1GB", input: "1GB", want: 1024 * 1024 * 1024},
 		{name: "fractional_kb", input: "0.5KB", want: 512},
-		{name: "fractional_mb", input: "0.1MB", want: int64(0.1 * 1024 * 1024)},
+		{name: "fractional_mb", input: "0.1MB", want: 104857}, // 0.1 * 1024 * 1024 = 104857.6, rounded down
 	}
 
 	for _, tt := range tests {

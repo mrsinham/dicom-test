@@ -212,7 +212,7 @@ func TestValidation_RequiredTags(t *testing.T) {
 	// Check specific values
 	modality, err := ds.FindElementByTag(tag.Modality)
 	if err == nil && modality != nil {
-		modalityStr := strings.Trim(modality.Value.String(), " ")
+		modalityStr := strings.Trim(modality.Value.String(), " []")
 		if modalityStr != "MR" {
 			t.Errorf("Modality should be 'MR', got '%s'", modalityStr)
 		} else {
