@@ -1,6 +1,8 @@
 module github.com/julien/dicom-test/go
 
-go 1.21
+go 1.24.0
+
+toolchain go1.24.7
 
 require (
 	github.com/suyashkumar/dicom v1.1.0

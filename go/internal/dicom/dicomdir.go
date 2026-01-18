@@ -233,7 +233,7 @@ func createDICOMDIRFile(outputDir string) error {
 	)
 
 	// Write DICOMDIR
-	if err := dicom.WriteDatasetToFile(dicomdirPath, *ds); err != nil {
+	if err := writeDatasetToFile(dicomdirPath, *ds); err != nil {
 		return fmt.Errorf("write DICOMDIR: %w", err)
 	}
 
