@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
@@ -12,10 +13,10 @@ import (
 
 // DirectoryRecord represents a single DICOMDIR directory record
 type DirectoryRecord struct {
-	RecordType string            // "PATIENT", "STUDY", "SERIES", "IMAGE"
-	Tags       map[tag.Tag]any   // Tag values for this record
-	Children   []*DirectoryRecord // Child records
-	FilePath   string            // Relative file path (for IMAGE records)
+	RecordType string              // "PATIENT", "STUDY", "SERIES", "IMAGE"
+	Tags       map[tag.Tag]any     // Tag values for this record
+	Children   []*DirectoryRecord  // Child records
+	FilePath   string              // Relative file path (for IMAGE records)
 }
 
 // FileHierarchy represents the PT*/ST*/SE* hierarchy
@@ -142,7 +143,7 @@ func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile) error {
 	fmt.Printf("✓ DICOMDIR created with standard hierarchy\n")
 	fmt.Printf("  Organized %d files into PT*/ST*/SE* structure\n", totalMoved)
 
-	// Create DICOMDIR file
+	// Create DICOMDIR file with directory records
 	if err := createDICOMDIRFile(outputDir); err != nil {
 		return fmt.Errorf("create DICOMDIR file: %w", err)
 	}
@@ -171,55 +172,198 @@ func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile) error {
 	return nil
 }
 
-// createDICOMDIRFile creates a basic DICOMDIR file
-// This is a simplified implementation that creates a minimal valid DICOMDIR
+// getStringValue safely extracts a string value from a dataset
+func getStringValue(ds dicom.Dataset, t tag.Tag) []string {
+	elem, err := ds.FindElementByTag(t)
+	if err != nil || elem == nil {
+		return []string{""}
+	}
+	str := strings.Trim(elem.Value.String(), " []")
+	return []string{str}
+}
+
+// createDICOMDIRFile creates a complete DICOMDIR file with directory record sequence
 func createDICOMDIRFile(outputDir string) error {
 	dicomdirPath := filepath.Join(outputDir, "DICOMDIR")
 
-	// Walk the directory tree to find all DICOM files
-	var dicomFiles []string
-	err := filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && filepath.Ext(path) != ".dcm" {
-			// Skip non-DICOM files, but also check files without extension (like IM000001)
-			if filepath.Base(path) != "DICOMDIR" {
-				// Check if it's a DICOM file by trying to parse it
-				if _, parseErr := dicom.ParseFile(path, nil); parseErr == nil {
-					relPath, _ := filepath.Rel(outputDir, path)
-					dicomFiles = append(dicomFiles, relPath)
-				}
-			}
-		} else if filepath.Ext(path) == ".dcm" {
-			relPath, _ := filepath.Rel(outputDir, path)
-			dicomFiles = append(dicomFiles, relPath)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("walk directory: %w", err)
+	// Collect all DICOM files organized by hierarchy
+	type ImageInfo struct {
+		RelPath        string
+		SOPClassUID    string
+		SOPInstanceUID string
 	}
 
-	// Create a minimal DICOMDIR dataset
-	// For a complete implementation, we would need to:
-	// 1. Parse all DICOM files to extract metadata
-	// 2. Build directory records with proper offsets
-	// 3. Create the directory record sequence
-	//
-	// For now, we create a placeholder DICOMDIR that contains the file list
-	// This is enough for many DICOM viewers to recognize the structure
+	type SeriesInfo struct {
+		SeriesUID    string
+		SeriesNumber string
+		Modality     string
+		Images       []ImageInfo
+	}
 
+	type StudyInfo struct {
+		StudyUID  string
+		StudyID   string
+		StudyDate string
+		StudyTime string
+		Series    []SeriesInfo
+	}
+
+	type PatientInfo struct {
+		PatientID   string
+		PatientName string
+		Studies     []StudyInfo
+	}
+
+	var patients []PatientInfo
+
+	// Walk the PT*/ST*/SE* hierarchy
+	patientDirs, _ := filepath.Glob(filepath.Join(outputDir, "PT*"))
+	sort.Strings(patientDirs)
+
+	for _, patientDir := range patientDirs {
+		patient := PatientInfo{
+			Studies: []StudyInfo{},
+		}
+
+		studyDirs, _ := filepath.Glob(filepath.Join(patientDir, "ST*"))
+		sort.Strings(studyDirs)
+
+		for _, studyDir := range studyDirs {
+			study := StudyInfo{
+				Series: []SeriesInfo{},
+			}
+
+			seriesDirs, _ := filepath.Glob(filepath.Join(studyDir, "SE*"))
+			sort.Strings(seriesDirs)
+
+			for _, seriesDir := range seriesDirs {
+				series := SeriesInfo{
+					Images: []ImageInfo{},
+				}
+
+				imageFiles, _ := filepath.Glob(filepath.Join(seriesDir, "IM*"))
+				sort.Strings(imageFiles)
+
+				for _, imageFile := range imageFiles {
+					// Parse DICOM file
+					ds, err := dicom.ParseFile(imageFile, nil)
+					if err != nil {
+						continue
+					}
+
+					// Get relative path from outputDir
+					relPath, _ := filepath.Rel(outputDir, imageFile)
+
+					// Extract metadata
+					sopClass := getStringValue(ds, tag.SOPClassUID)
+					sopInstance := getStringValue(ds, tag.SOPInstanceUID)
+
+					image := ImageInfo{
+						RelPath:        filepath.ToSlash(relPath),
+						SOPClassUID:    sopClass[0],
+						SOPInstanceUID: sopInstance[0],
+					}
+					series.Images = append(series.Images, image)
+
+					// Get series info from first image
+					if len(series.Images) == 1 {
+						series.SeriesUID = getStringValue(ds, tag.SeriesInstanceUID)[0]
+						series.SeriesNumber = getStringValue(ds, tag.SeriesNumber)[0]
+						series.Modality = getStringValue(ds, tag.Modality)[0]
+					}
+
+					// Get study info from first image
+					if len(study.Series) == 0 && len(series.Images) == 1 {
+						study.StudyUID = getStringValue(ds, tag.StudyInstanceUID)[0]
+						study.StudyID = getStringValue(ds, tag.StudyID)[0]
+						study.StudyDate = getStringValue(ds, tag.StudyDate)[0]
+						study.StudyTime = getStringValue(ds, tag.StudyTime)[0]
+					}
+
+					// Get patient info from first image
+					if len(patients) == 0 && len(study.Series) == 0 && len(series.Images) == 1 {
+						patient.PatientID = getStringValue(ds, tag.PatientID)[0]
+						patient.PatientName = getStringValue(ds, tag.PatientName)[0]
+					}
+				}
+
+				if len(series.Images) > 0 {
+					study.Series = append(study.Series, series)
+				}
+			}
+
+			if len(study.Series) > 0 {
+				patient.Studies = append(patient.Studies, study)
+			}
+		}
+
+		if len(patient.Studies) > 0 {
+			patients = append(patients, patient)
+		}
+	}
+
+	// Build directory record sequence
+	// Each record is a []*Element, and we collect them into [][]*Element
+	var recordItems [][]*dicom.Element
+
+	for _, patient := range patients {
+		// PATIENT record - create element list
+		patientElements := []*dicom.Element{
+			mustNewElement(tag.DirectoryRecordType, []string{"PATIENT"}),
+			mustNewElement(tag.PatientID, []string{patient.PatientID}),
+			mustNewElement(tag.PatientName, []string{patient.PatientName}),
+		}
+		recordItems = append(recordItems, patientElements)
+
+		for _, study := range patient.Studies {
+			// STUDY record
+			studyElements := []*dicom.Element{
+				mustNewElement(tag.DirectoryRecordType, []string{"STUDY"}),
+				mustNewElement(tag.StudyInstanceUID, []string{study.StudyUID}),
+				mustNewElement(tag.StudyID, []string{study.StudyID}),
+				mustNewElement(tag.StudyDate, []string{study.StudyDate}),
+				mustNewElement(tag.StudyTime, []string{study.StudyTime}),
+			}
+			recordItems = append(recordItems, studyElements)
+
+			for _, series := range study.Series {
+				// SERIES record
+				seriesElements := []*dicom.Element{
+					mustNewElement(tag.DirectoryRecordType, []string{"SERIES"}),
+					mustNewElement(tag.Modality, []string{series.Modality}),
+					mustNewElement(tag.SeriesInstanceUID, []string{series.SeriesUID}),
+					mustNewElement(tag.SeriesNumber, []string{series.SeriesNumber}),
+				}
+				recordItems = append(recordItems, seriesElements)
+
+				for _, image := range series.Images {
+					// IMAGE record
+					// Split path into components for ReferencedFileID
+					pathParts := strings.Split(image.RelPath, "/")
+
+					imageElements := []*dicom.Element{
+						mustNewElement(tag.DirectoryRecordType, []string{"IMAGE"}),
+						mustNewElement(tag.ReferencedFileID, pathParts),
+						mustNewElement(tag.ReferencedSOPClassUIDInFile, []string{image.SOPClassUID}),
+						mustNewElement(tag.ReferencedSOPInstanceUIDInFile, []string{image.SOPInstanceUID}),
+						mustNewElement(tag.ReferencedTransferSyntaxUIDInFile, []string{"1.2.840.10008.1.2.1"}),
+					}
+					recordItems = append(recordItems, imageElements)
+				}
+			}
+		}
+	}
+
+	// Create DICOMDIR dataset
 	ds := &dicom.Dataset{
 		Elements: []*dicom.Element{},
 	}
 
-	// File Meta Information
+	// File Meta Information (must be first)
 	ds.Elements = append(ds.Elements,
-		mustNewElement(tag.FileMetaInformationVersion, []byte{0x00, 0x01}),
+		mustNewElement(tag.TransferSyntaxUID, []string{"1.2.840.10008.1.2.1"}), // Explicit VR Little Endian
 		mustNewElement(tag.MediaStorageSOPClassUID, []string{"1.2.840.10008.1.3.10"}), // Media Storage Directory Storage
 		mustNewElement(tag.MediaStorageSOPInstanceUID, []string{"1.2.826.0.1.3680043.8.498.1"}),
-		mustNewElement(tag.TransferSyntaxUID, []string{"1.2.840.10008.1.2.1"}), // Explicit VR Little Endian
 		mustNewElement(tag.ImplementationClassUID, []string{"1.2.826.0.1.3680043.8.498"}),
 	)
 
@@ -231,6 +375,16 @@ func createDICOMDIRFile(outputDir string) error {
 	ds.Elements = append(ds.Elements,
 		mustNewElement(tag.FileSetID, []string{filesetID}),
 	)
+
+	// Add Directory Record Sequence
+	// recordItems is [][]*Element, which NewElement will convert to SequenceItemValue automatically
+	if len(recordItems) > 0 {
+		seqElem, err := dicom.NewElement(tag.DirectoryRecordSequence, recordItems)
+		if err != nil {
+			return fmt.Errorf("create directory record sequence: %w", err)
+		}
+		ds.Elements = append(ds.Elements, seqElem)
+	}
 
 	// Write DICOMDIR
 	if err := writeDatasetToFile(dicomdirPath, *ds); err != nil {

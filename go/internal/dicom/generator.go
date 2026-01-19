@@ -10,6 +10,7 @@ import (
 
 	"github.com/julien/dicom-test/go/internal/util"
 	"github.com/suyashkumar/dicom"
+	"github.com/suyashkumar/dicom/pkg/frame"
 	"github.com/suyashkumar/dicom/pkg/tag"
 )
 
@@ -192,17 +193,35 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			studyDescription = "Brain MRI"
 		}
 
+		// Generate study date and time
+		studyDate := fmt.Sprintf("%04d%02d%02d",
+			rng.IntN(5)+2020, // 2020-2024
+			rng.IntN(12)+1,   // 1-12
+			rng.IntN(28)+1)   // 1-28
+		studyTime := fmt.Sprintf("%02d%02d%02d",
+			rng.IntN(24),     // 0-23 hours
+			rng.IntN(60),     // 0-59 minutes
+			rng.IntN(60))     // 0-59 seconds
+
 		// Generate series-specific MRI parameters (same for all images in series)
-		_ = rng.Float64()*1.5 + 0.5        // seriesPixelSpacing
-		_ = rng.Float64()*4.0 + 1.0      // seriesSliceThickness
-		// seriesSpacingBetweenSlices := seriesSliceThickness + rng.Float64()*0.5
-		// seriesEchoTime := rng.Float64()*20.0 + 10.0          // 10-30
-		// seriesRepetitionTime := rng.Float64()*400.0 + 400.0  // 400-800
-		// seriesFlipAngle := rng.Float64()*30.0 + 60.0         // 60-90
-		// seriesSequenceName := []string{"T1_MPRAGE", "T1_SE", "T2_FSE", "T2_FLAIR"}[rng.IntN(4)]
+		seriesPixelSpacing := rng.Float64()*1.5 + 0.5               // 0.5-2.0 mm
+		seriesSliceThickness := rng.Float64()*4.0 + 1.0             // 1.0-5.0 mm
+		seriesSpacingBetweenSlices := seriesSliceThickness + rng.Float64()*0.5 // slightly larger than thickness
+		seriesEchoTime := rng.Float64()*20.0 + 10.0                 // 10-30 ms
+		seriesRepetitionTime := rng.Float64()*400.0 + 400.0         // 400-800 ms
+		seriesFlipAngle := rng.Float64()*30.0 + 60.0                // 60-90 degrees
+		seriesSequenceName := []string{"T1_MPRAGE", "T1_SE", "T2_FSE", "T2_FLAIR"}[rng.IntN(4)]
 
 		// Select MRI scanner
 		mfr := manufacturers[rng.IntN(len(manufacturers))]
+
+		// Calculate imaging frequency based on field strength (in MHz)
+		// Larmor frequency for 1H: 42.58 MHz/T
+		imagingFrequency := mfr.FieldStrength * 42.58
+
+		// Window settings for display (depends on tissue contrast)
+		windowCenter := 500.0 + rng.Float64()*1000.0 // 500-1500
+		windowWidth := 1000.0 + rng.Float64()*1000.0 // 1000-2000
 
 		// Calculate images for this study
 		numImagesThisStudy := imagesPerStudy
@@ -213,14 +232,40 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		fmt.Printf("\nStudy %d/%d: %d images\n", studyNum, opts.NumStudies, numImagesThisStudy)
 		fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
 		fmt.Printf("  Scanner: %s %s (%.1fT)\n", mfr.Name, mfr.Model, mfr.FieldStrength)
-		// fmt.Printf("  Parameters: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
-		// 	seriesPixelSpacing, seriesSliceThickness)
+		fmt.Printf("  Sequence: %s, TE=%.1fms, TR=%.1fms, FA=%.1f°\n",
+			seriesSequenceName, seriesEchoTime, seriesRepetitionTime, seriesFlipAngle)
+		fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
+			seriesPixelSpacing, seriesSliceThickness)
 
 		// Generate each DICOM file for this study
 		for instanceInStudy := 1; instanceInStudy <= numImagesThisStudy; instanceInStudy++ {
 			// Generate SOP Instance UID
 			sopInstanceUID := util.GenerateDeterministicUID(
 				fmt.Sprintf("%s_study_%d_instance_%d", opts.OutputDir, studyNum, instanceInStudy))
+
+			// Calculate position/orientation for this slice
+			// Standard axial brain MRI orientation
+			// ImageOrientationPatient: [1, 0, 0, 0, 1, 0] means:
+			//   - First row direction: right (X+)
+			//   - First column direction: anterior (Y+)
+			//   - Slice normal: superior (Z+)
+			imageOrientationPatient := []string{"1", "0", "0", "0", "1", "0"}
+
+			// Calculate slice position (ImagePositionPatient)
+			// For axial slices, we increment Z position for each slice
+			// Start at -100mm and increment by slice spacing
+			sliceIndex := float64(instanceInStudy - 1)
+			imagePositionX := -100.0 // mm from isocenter
+			imagePositionY := -100.0 // mm from isocenter
+			imagePositionZ := -100.0 + (sliceIndex * seriesSpacingBetweenSlices)
+			imagePositionPatient := []string{
+				fmt.Sprintf("%.6f", imagePositionX),
+				fmt.Sprintf("%.6f", imagePositionY),
+				fmt.Sprintf("%.6f", imagePositionZ),
+			}
+
+			// SliceLocation: Z coordinate of the slice
+			sliceLocation := imagePositionZ
 
 			// Generate metadata with essential fields
 			metadata := &dicom.Dataset{
@@ -234,8 +279,10 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 					mustNewElement(tag.PatientSex, []string{patientSex}),
 					// Study module
 					mustNewElement(tag.StudyInstanceUID, []string{studyUID}),
-					// mustNewElement(tag.StudyID, []string{studyID}),
-					// mustNewElement(tag.StudyDescription, []string{studyDescription}),
+					mustNewElement(tag.StudyID, []string{studyID}),
+					mustNewElement(tag.StudyDate, []string{studyDate}),
+					mustNewElement(tag.StudyTime, []string{studyTime}),
+					mustNewElement(tag.StudyDescription, []string{studyDescription}),
 					// Series module
 					mustNewElement(tag.SeriesInstanceUID, []string{seriesUID}),
 					mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", 1)}),
@@ -244,6 +291,28 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 					mustNewElement(tag.SOPInstanceUID, []string{sopInstanceUID}),
 					mustNewElement(tag.SOPClassUID, []string{"1.2.840.10008.5.1.4.1.1.4"}),
 					mustNewElement(tag.InstanceNumber, []string{fmt.Sprintf("%d", instanceInStudy)}),
+					// MRI parameters
+					mustNewElement(tag.PixelSpacing, []string{
+						fmt.Sprintf("%.6f", seriesPixelSpacing),
+						fmt.Sprintf("%.6f", seriesPixelSpacing),
+					}),
+					mustNewElement(tag.SliceThickness, []string{fmt.Sprintf("%.6f", seriesSliceThickness)}),
+					mustNewElement(tag.SpacingBetweenSlices, []string{fmt.Sprintf("%.6f", seriesSpacingBetweenSlices)}),
+					mustNewElement(tag.EchoTime, []string{fmt.Sprintf("%.6f", seriesEchoTime)}),
+					mustNewElement(tag.RepetitionTime, []string{fmt.Sprintf("%.6f", seriesRepetitionTime)}),
+					mustNewElement(tag.FlipAngle, []string{fmt.Sprintf("%.6f", seriesFlipAngle)}),
+					mustNewElement(tag.MagneticFieldStrength, []string{fmt.Sprintf("%.1f", mfr.FieldStrength)}),
+					mustNewElement(tag.ImagingFrequency, []string{fmt.Sprintf("%.6f", imagingFrequency)}),
+					mustNewElement(tag.Manufacturer, []string{mfr.Name}),
+					mustNewElement(tag.ManufacturerModelName, []string{mfr.Model}),
+					mustNewElement(tag.SequenceName, []string{seriesSequenceName}),
+					// Window/Level for display
+					mustNewElement(tag.WindowCenter, []string{fmt.Sprintf("%.1f", windowCenter)}),
+					mustNewElement(tag.WindowWidth, []string{fmt.Sprintf("%.1f", windowWidth)}),
+					// Position/Orientation tags
+					mustNewElement(tag.ImagePositionPatient, imagePositionPatient),
+					mustNewElement(tag.ImageOrientationPatient, imageOrientationPatient),
+					mustNewElement(tag.SliceLocation, []string{fmt.Sprintf("%.6f", sliceLocation)}),
 					// Image pixel module
 					mustNewElement(tag.Rows, []int{height}),
 					mustNewElement(tag.Columns, []int{width}),
@@ -256,7 +325,44 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				},
 			}
 
-			// TODO: Add pixel data later - testing without it first
+			// Generate pixel data
+			pixelsPerFrame := width * height
+			nativeFrame := frame.NewNativeFrame[uint16](16, height, width, pixelsPerFrame, 1)
+
+			// Fill with synthetic brain-like gradient pattern
+			// Create a simple radial gradient simulating brain tissue intensity
+			centerX, centerY := float64(width)/2, float64(height)/2
+			maxDist := math.Sqrt(centerX*centerX + centerY*centerY)
+
+			for y := 0; y < height; y++ {
+				for x := 0; x < width; x++ {
+					// Calculate distance from center
+					dx := float64(x) - centerX
+					dy := float64(y) - centerY
+					dist := math.Sqrt(dx*dx + dy*dy)
+
+					// Create radial gradient with some noise
+					intensity := (1.0 - (dist / maxDist)) * 40000.0 // Scale to 16-bit range
+					noise := (rng.Float64() - 0.5) * 5000.0         // Add some texture
+
+					pixelValue := uint16(math.Max(0, math.Min(65535, intensity+noise)))
+					nativeFrame.RawData[y*width+x] = pixelValue
+				}
+			}
+
+			// Create pixel data info
+			pixelDataInfo := dicom.PixelDataInfo{
+				Frames: []*frame.Frame{
+					{
+						Encapsulated: false,
+						NativeData:   nativeFrame,
+					},
+				},
+			}
+
+			// Add pixel data element
+			metadata.Elements = append(metadata.Elements,
+				mustNewElement(tag.PixelData, pixelDataInfo))
 
 			// Write DICOM file
 			filename := fmt.Sprintf("IMG%04d.dcm", globalImageIndex)
