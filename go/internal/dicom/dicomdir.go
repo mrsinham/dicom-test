@@ -309,6 +309,8 @@ func createDICOMDIRFile(outputDir string) error {
 	for _, patient := range patients {
 		// PATIENT record - create element list
 		patientElements := []*dicom.Element{
+			mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated during write
+			mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // Points to first STUDY
 			mustNewElement(tag.DirectoryRecordType, []string{"PATIENT"}),
 			mustNewElement(tag.PatientID, []string{patient.PatientID}),
 			mustNewElement(tag.PatientName, []string{patient.PatientName}),
@@ -318,6 +320,8 @@ func createDICOMDIRFile(outputDir string) error {
 		for _, study := range patient.Studies {
 			// STUDY record
 			studyElements := []*dicom.Element{
+				mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated
+				mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // Points to first SERIES
 				mustNewElement(tag.DirectoryRecordType, []string{"STUDY"}),
 				mustNewElement(tag.StudyInstanceUID, []string{study.StudyUID}),
 				mustNewElement(tag.StudyID, []string{study.StudyID}),
@@ -329,6 +333,8 @@ func createDICOMDIRFile(outputDir string) error {
 			for _, series := range study.Series {
 				// SERIES record
 				seriesElements := []*dicom.Element{
+					mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated
+					mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // Points to first IMAGE
 					mustNewElement(tag.DirectoryRecordType, []string{"SERIES"}),
 					mustNewElement(tag.Modality, []string{series.Modality}),
 					mustNewElement(tag.SeriesInstanceUID, []string{series.SeriesUID}),
@@ -342,6 +348,8 @@ func createDICOMDIRFile(outputDir string) error {
 					pathParts := strings.Split(image.RelPath, "/")
 
 					imageElements := []*dicom.Element{
+						mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated
+						mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // No children for IMAGE
 						mustNewElement(tag.DirectoryRecordType, []string{"IMAGE"}),
 						mustNewElement(tag.ReferencedFileID, pathParts),
 						mustNewElement(tag.ReferencedSOPClassUIDInFile, []string{image.SOPClassUID}),
@@ -374,6 +382,10 @@ func createDICOMDIRFile(outputDir string) error {
 	}
 	ds.Elements = append(ds.Elements,
 		mustNewElement(tag.FileSetID, []string{filesetID}),
+		// Directory record offsets - these should be byte offsets but we set to 0
+		// A proper implementation would calculate these during write
+		mustNewElement(tag.OffsetOfTheFirstDirectoryRecordOfTheRootDirectoryEntity, []int{0}),
+		mustNewElement(tag.OffsetOfTheLastDirectoryRecordOfTheRootDirectoryEntity, []int{0}),
 	)
 
 	// Add Directory Record Sequence
