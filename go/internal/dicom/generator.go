@@ -452,23 +452,37 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			pixelsPerFrame := width * height
 			nativeFrame := frame.NewNativeFrame[uint16](16, height, width, pixelsPerFrame, 1)
 
-			// Fill with synthetic brain-like gradient pattern
-			// Create a simple radial gradient simulating brain tissue intensity
+			// Fill with synthetic brain-like pattern with noise everywhere
 			centerX, centerY := float64(width)/2, float64(height)/2
 			maxDist := math.Sqrt(centerX*centerX + centerY*centerY)
 
 			for y := 0; y < height; y++ {
 				for x := 0; x < width; x++ {
-					// Calculate distance from center
+					// Calculate distance from center for subtle gradient
 					dx := float64(x) - centerX
 					dy := float64(y) - centerY
 					dist := math.Sqrt(dx*dx + dy*dy)
 
-					// Create radial gradient with some noise
-					intensity := (1.0 - (dist / maxDist)) * 40000.0 // Scale to 16-bit range
-					noise := (rng.Float64() - 0.5) * 5000.0         // Add some texture
+					// Create darker base intensity with subtle radial gradient
+					// Reduce from 40000 to 12000 for darker images
+					baseIntensity := (1.0 - (dist / maxDist)) * 12000.0
 
-					pixelValue := uint16(math.Max(0, math.Min(65535, intensity+noise)))
+					// Add multi-scale noise everywhere (not just at edges)
+					// Increase noise for better texture visibility
+					// Large-scale noise pattern (tissue-like variations)
+					largeNoise := (rng.Float64() - 0.5) * 12000.0
+					// Medium-scale noise (more texture)
+					mediumNoise := (rng.Float64() - 0.5) * 6000.0
+					// Fine grain noise
+					fineNoise := (rng.Float64() - 0.5) * 3000.0
+
+					totalNoise := largeNoise + mediumNoise + fineNoise
+
+					// Combine base intensity with noise
+					intensity := baseIntensity + totalNoise
+
+					// Clamp to valid range
+					pixelValue := uint16(math.Max(0, math.Min(65535, intensity)))
 					nativeFrame.RawData[y*width+x] = pixelValue
 				}
 			}
