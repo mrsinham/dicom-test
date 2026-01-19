@@ -14,6 +14,7 @@ import (
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/frame"
 	"github.com/suyashkumar/dicom/pkg/tag"
+	"golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
@@ -30,7 +31,7 @@ func writeDatasetToFile(filename string, ds dicom.Dataset) error {
 	return dicom.Write(f, ds)
 }
 
-// drawTextOnFrame draws text overlay on a uint16 frame
+// drawTextOnFrame draws large text overlay on a uint16 frame
 func drawTextOnFrame(nativeFrame *frame.NativeFrame[uint16], width, height int, text string) {
 	// Create an RGBA image for drawing (easier to draw text)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
@@ -45,50 +46,87 @@ func drawTextOnFrame(nativeFrame *frame.NativeFrame[uint16], width, height int, 
 		}
 	}
 
-	// Calculate text position: centered horizontally, 5% from top
-	paddingTop := int(float64(height) * 0.05)
-
-	// Use basicfont (fixed-width font from standard library)
+	// Step 1: Render text at base size
 	face := basicfont.Face7x13
+	baseTextWidth := font.MeasureString(face, text).Ceil()
+	baseTextHeight := 13
 
-	// Measure text width to center it
-	textWidth := font.MeasureString(face, text).Ceil()
-	x := (width - textWidth) / 2
-	y := paddingTop + 13 // 13 is the font height
+	// Create a small image for the base text
+	textImg := image.NewRGBA(image.Rect(0, 0, baseTextWidth, baseTextHeight))
 
-	point := fixed.Point26_6{
-		X: fixed.Int26_6(x * 64),
-		Y: fixed.Int26_6(y * 64),
+	// Draw text on the small image (white on transparent)
+	drawer := &font.Drawer{
+		Dst:  textImg,
+		Src:  image.NewUniform(color.RGBA{255, 255, 255, 255}),
+		Face: face,
+		Dot:  fixed.Point26_6{Y: fixed.I(13)}, // Baseline at height
+	}
+	drawer.DrawString(text)
+
+	// Step 2: Calculate scale factor to make text 30% of image width
+	targetWidth := int(float64(width) * 0.3)
+	scaleFactor := float64(targetWidth) / float64(baseTextWidth)
+
+	// Ensure minimum scale for readability
+	if scaleFactor < 2.0 {
+		scaleFactor = 2.0
 	}
 
-	// Draw outline (black) for visibility
-	outlineThickness := 2
+	scaledWidth := int(float64(baseTextWidth) * scaleFactor)
+	scaledHeight := int(float64(baseTextHeight) * scaleFactor)
+
+	// Step 3: Create scaled text image
+	scaledTextImg := image.NewRGBA(image.Rect(0, 0, scaledWidth, scaledHeight))
+
+	// Scale up the text using bilinear interpolation
+	draw.BiLinear.Scale(scaledTextImg, scaledTextImg.Bounds(), textImg, textImg.Bounds(), draw.Over, nil)
+
+	// Step 4: Position the text - centered horizontally and vertically
+	x := (width - scaledWidth) / 2
+	y := (height - scaledHeight) / 2
+
+	// Step 5: Draw thick black outline for visibility
+	outlineThickness := max(3, scaledHeight/10) // Proportional outline
+
 	for dx := -outlineThickness; dx <= outlineThickness; dx++ {
 		for dy := -outlineThickness; dy <= outlineThickness; dy++ {
-			if dx != 0 || dy != 0 {
-				outlinePoint := fixed.Point26_6{
-					X: point.X + fixed.Int26_6(dx*64),
-					Y: point.Y + fixed.Int26_6(dy*64),
+			if dx*dx+dy*dy <= outlineThickness*outlineThickness { // Circular outline
+				// Draw outline by copying with black color
+				for sy := 0; sy < scaledHeight; sy++ {
+					for sx := 0; sx < scaledWidth; sx++ {
+						r, g, b, a := scaledTextImg.At(sx, sy).RGBA()
+						if a > 0 { // If there's text here
+							destX := x + sx + dx
+							destY := y + sy + dy
+							if destX >= 0 && destX < width && destY >= 0 && destY < height {
+								// Draw black outline
+								img.Set(destX, destY, color.RGBA{0, 0, 0, 255})
+							}
+						}
+						_ = r
+						_ = g
+						_ = b
+					}
 				}
-				drawer := &font.Drawer{
-					Dst:  img,
-					Src:  image.NewUniform(color.RGBA{0, 0, 0, 255}), // Black
-					Face: face,
-					Dot:  outlinePoint,
-				}
-				drawer.DrawString(text)
 			}
 		}
 	}
 
-	// Draw main text (white)
-	drawer := &font.Drawer{
-		Dst:  img,
-		Src:  image.NewUniform(color.RGBA{255, 255, 255, 255}), // White
-		Face: face,
-		Dot:  point,
+	// Step 6: Draw main text (white) on top
+	for sy := 0; sy < scaledHeight; sy++ {
+		for sx := 0; sx < scaledWidth; sx++ {
+			r, g, b, a := scaledTextImg.At(sx, sy).RGBA()
+			if a > 0 { // If there's text here
+				destX := x + sx
+				destY := y + sy
+				if destX >= 0 && destX < width && destY >= 0 && destY < height {
+					// Blend white text on top
+					brightness := (r + g + b) / 3 / 256 // 0-255 range
+					img.Set(destX, destY, color.RGBA{uint8(brightness), uint8(brightness), uint8(brightness), 255})
+				}
+			}
+		}
 	}
-	drawer.DrawString(text)
 
 	// Convert back to uint16 and update the frame
 	for y := 0; y < height; y++ {
@@ -100,6 +138,14 @@ func drawTextOnFrame(nativeFrame *frame.NativeFrame[uint16], width, height int, 
 			nativeFrame.RawData[y*width+x] = uint16(gray)
 		}
 	}
+}
+
+// max returns the maximum of two integers
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // GeneratorOptions contains all parameters needed to generate a DICOM series
