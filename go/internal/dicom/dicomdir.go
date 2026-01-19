@@ -313,6 +313,7 @@ func createDICOMDIRFile(outputDir string) error {
 		// PATIENT record - create element list
 		patientElements := []*dicom.Element{
 			mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated during write
+			mustNewElement(tag.RecordInUseFlag, []int{0xFFFF}),           // 0xFFFF means record is in use
 			mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // Points to first STUDY
 			mustNewElement(tag.DirectoryRecordType, []string{"PATIENT"}),
 			mustNewElement(tag.PatientID, []string{patient.PatientID}),
@@ -324,6 +325,7 @@ func createDICOMDIRFile(outputDir string) error {
 			// STUDY record
 			studyElements := []*dicom.Element{
 				mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated
+				mustNewElement(tag.RecordInUseFlag, []int{0xFFFF}),           // 0xFFFF means record is in use
 				mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // Points to first SERIES
 				mustNewElement(tag.DirectoryRecordType, []string{"STUDY"}),
 				mustNewElement(tag.StudyInstanceUID, []string{study.StudyUID}),
@@ -337,6 +339,7 @@ func createDICOMDIRFile(outputDir string) error {
 				// SERIES record
 				seriesElements := []*dicom.Element{
 					mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated
+					mustNewElement(tag.RecordInUseFlag, []int{0xFFFF}),           // 0xFFFF means record is in use
 					mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // Points to first IMAGE
 					mustNewElement(tag.DirectoryRecordType, []string{"SERIES"}),
 					mustNewElement(tag.Modality, []string{series.Modality}),
@@ -352,6 +355,7 @@ func createDICOMDIRFile(outputDir string) error {
 
 					imageElements := []*dicom.Element{
 						mustNewElement(tag.OffsetOfTheNextDirectoryRecord, []int{0}), // Will be updated
+						mustNewElement(tag.RecordInUseFlag, []int{0xFFFF}),           // 0xFFFF means record is in use
 						mustNewElement(tag.OffsetOfReferencedLowerLevelDirectoryEntity, []int{0}), // No children for IMAGE
 						mustNewElement(tag.DirectoryRecordType, []string{"IMAGE"}),
 						mustNewElement(tag.ReferencedFileID, pathParts),
