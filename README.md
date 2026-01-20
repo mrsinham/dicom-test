@@ -1,20 +1,172 @@
 # DICOM MRI Generator
 
-Outil CLI pour générer des séries DICOM d'IRM valides pour tester des interfaces médicales.
+A CLI tool to generate valid DICOM MRI series for testing medical imaging platforms.
 
-**Génère plusieurs fichiers DICOM** (un par image) dans un dossier, format standard attendu par les plateformes médicales.
+**Generates multiple DICOM files** (one per image) in a directory, using the standard format expected by medical platforms and PACS systems.
 
 ## Installation
 
-### Go (recommandé)
+### Prerequisites
+
+- Go 1.21 or later
+
+### Build from source
 
 ```bash
-go build ./cmd/generate-dicom-mri/
+git clone https://github.com/mrsinham/dicom-test.git
+cd dicom-test
+go build -o generate-dicom-mri ./cmd/generate-dicom-mri/
 ```
 
-### Python (version legacy)
+### Install directly
 
-La version Python originale est disponible dans le répertoire `python/` :
+```bash
+go install github.com/mrsinham/dicom-test/cmd/generate-dicom-mri@latest
+```
+
+## Quick Start
+
+```bash
+# Generate 10 DICOM images totaling 100MB
+./generate-dicom-mri --num-images 10 --total-size 100MB
+
+# Generate a full MRI series (120 slices, 1GB)
+./generate-dicom-mri --num-images 120 --total-size 1GB --output mri_series
+```
+
+## Usage
+
+```bash
+./generate-dicom-mri --num-images <N> --total-size <SIZE> [options]
+```
+
+### Required Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--num-images` | Number of images/slices to generate |
+| `--total-size` | Total target size (e.g., `100MB`, `1GB`, `4.5GB`) |
+
+### Optional Arguments
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--output` | Output directory name | `dicom_series` |
+| `--seed` | Random seed for reproducibility | auto-generated |
+| `--num-studies` | Number of studies to generate | `1` |
+| `--workers` | Number of parallel workers | CPU core count |
+| `--help` | Show help message | - |
+
+### Examples
+
+```bash
+# Basic usage: 120 images, 1GB total
+./generate-dicom-mri --num-images 120 --total-size 1GB
+
+# Custom output directory with fixed seed for reproducibility
+./generate-dicom-mri --num-images 50 --total-size 500MB --output patient_001 --seed 42
+
+# Generate multiple studies (useful for testing study management)
+./generate-dicom-mri --num-images 30 --total-size 500MB --num-studies 3
+
+# Limit parallelism (useful on resource-constrained systems)
+./generate-dicom-mri --num-images 100 --total-size 1GB --workers 4
+
+# Large dataset for stress testing
+./generate-dicom-mri --num-images 500 --total-size 4GB --output stress_test
+```
+
+## Output Structure
+
+The generator creates a standard DICOMDIR structure:
+
+```
+output_directory/
+├── DICOMDIR                      # Directory index file
+└── PT000000/                     # Patient directory
+    └── ST000000/                 # Study directory
+        └── SE000000/             # Series directory
+            ├── IM000001          # Image 1
+            ├── IM000002          # Image 2
+            └── ...
+```
+
+This hierarchy follows the DICOM standard and is compatible with:
+- PACS systems (Orthanc, dcm4chee, etc.)
+- DICOM viewers (Horos, OsiriX, RadiAnt, etc.)
+- Medical imaging platforms
+
+## Features
+
+- **Standard DICOM format**: Generates valid DICOM files readable by any compliant software
+- **DICOMDIR support**: Automatic directory index file creation
+- **PT/ST/SE hierarchy**: Standard patient/study/series folder structure
+- **Visual overlay**: Each image shows "File X/Y" text for easy verification
+- **Parallel generation**: Worker pool for fast generation (~4.5x speedup)
+- **Realistic metadata**: Simulated MRI parameters from major vendors (Siemens, GE, Philips)
+- **Realistic patient names**: Generated French patient names
+- **Reproducible output**: Same seed produces identical files
+- **Window/Level tags**: Proper display settings for DICOM viewers
+
+## Performance
+
+Benchmarks on a 24-core CPU:
+
+| Images | Total Size | Sequential | Parallel (24 workers) |
+|--------|------------|------------|----------------------|
+| 50     | 100MB      | ~3.1s      | ~0.7s                |
+| 120    | 1GB        | ~15s       | ~3s                  |
+| 500    | 4GB        | ~60s       | ~12s                 |
+
+## Reproducibility
+
+The generator supports deterministic output:
+
+```bash
+# These two commands produce identical files
+./generate-dicom-mri --num-images 10 --total-size 100MB --output test --seed 42
+./generate-dicom-mri --num-images 10 --total-size 100MB --output test --seed 42
+```
+
+When no seed is provided, a deterministic seed is generated from the output directory name, ensuring that regenerating with the same output directory produces the same patient/study IDs.
+
+## Testing
+
+```bash
+# Run unit tests
+go test ./internal/...
+
+# Run integration tests
+go test ./tests/...
+
+# Run all tests
+go test ./...
+
+# Run with verbose output
+go test -v ./...
+```
+
+## Project Structure
+
+```
+.
+├── cmd/generate-dicom-mri/    # CLI entry point
+├── internal/
+│   ├── dicom/                 # DICOM generation and DICOMDIR
+│   ├── image/                 # Pixel data generation
+│   └── util/                  # Utilities (UID generation, size parsing)
+├── tests/                     # Integration tests
+├── scripts/                   # Validation scripts
+├── python/                    # Legacy Python version
+│   ├── generate_dicom_mri.py
+│   ├── requirements.txt
+│   └── tests/
+└── go.mod
+```
+
+## Legacy Python Version
+
+The original Python implementation is preserved in the `python/` directory:
 
 ```bash
 cd python
@@ -22,96 +174,20 @@ pip install -r requirements.txt
 python generate_dicom_mri.py --num-images 10 --total-size 100MB
 ```
 
-## Usage
+Note: The Go version is recommended for production use due to better performance and parallel generation support.
 
-```bash
-./generate-dicom-mri --num-images 120 --total-size 1GB --output mri_series
-```
+## Use Cases
 
-Cela créera un dossier `mri_series/` contenant 120 fichiers DICOM individuels + fichier DICOMDIR:
-```
-mri_series/
-├── DICOMDIR                    # Fichier d'index de la série
-├── PT000000/ST000000/SE000000/ # Hiérarchie standard DICOM
-│   ├── IM000001
-│   ├── IM000002
-│   └── ...
-```
+- **Platform testing**: Generate test data for medical imaging platforms
+- **PACS integration**: Test DICOM import/export functionality
+- **Viewer development**: Create sample data for DICOM viewer development
+- **Load testing**: Generate large datasets for performance testing
+- **CI/CD pipelines**: Reproducible test data generation
 
-### Paramètres
+## License
 
-| Paramètre | Description | Défaut |
-|-----------|-------------|--------|
-| `--num-images` | Nombre d'images/coupes (requis) | - |
-| `--total-size` | Taille totale cible (requis) | - |
-| `--output` | Dossier de sortie | `dicom_series` |
-| `--seed` | Seed pour reproductibilité | auto |
-| `--num-studies` | Nombre d'études | 1 |
-| `--workers` | Workers parallèles | CPU cores |
+MIT License - See LICENSE file for details.
 
-### Exemples
+## Contributing
 
-```bash
-# Générer 120 images pour 1 GB total
-./generate-dicom-mri --num-images 120 --total-size 1GB
-
-# Avec nom de dossier personnalisé et seed
-./generate-dicom-mri --num-images 50 --total-size 500MB --output my_mri --seed 42
-
-# Plusieurs études
-./generate-dicom-mri --num-images 30 --total-size 500MB --num-studies 3
-
-# Limiter le parallélisme
-./generate-dicom-mri --num-images 100 --total-size 1GB --workers 4
-```
-
-## Caractéristiques
-
-- Génère des fichiers DICOM individuels (format standard)
-- **Fichier DICOMDIR** automatiquement créé (index de la série)
-- **Hiérarchie PT/ST/SE** standard pour compatibilité PACS
-- **Texte "File X/Y"** incrusté sur chaque image
-- **Génération parallèle** avec worker pool (~4.5x speedup)
-- Tous les fichiers partagent le même Study UID et Series UID
-- Métadonnées MRI réalistes (SIEMENS, GE, PHILIPS)
-- Noms de patients français réalistes
-- Tags Window/Level pour affichage dans viewers médicaux
-- Reproductible avec seed
-
-## Performance
-
-| Images | Taille | Temps (1 worker) | Temps (24 workers) |
-|--------|--------|------------------|-------------------|
-| 50 | 100MB | ~3.1s | ~0.7s |
-| 120 | 1GB | ~15s | ~3s |
-
-## Testing
-
-```bash
-# Tests unitaires
-go test ./internal/...
-
-# Tests d'intégration
-go test ./tests/...
-
-# Tous les tests
-go test ./...
-```
-
-## Structure du projet
-
-```
-.
-├── cmd/generate-dicom-mri/   # Point d'entrée CLI
-├── internal/
-│   ├── dicom/                # Génération DICOM et DICOMDIR
-│   ├── image/                # Génération de pixels
-│   └── util/                 # Utilitaires (UID, parsing)
-├── tests/                    # Tests d'intégration
-├── scripts/                  # Scripts de validation
-├── python/                   # Version Python legacy
-│   ├── generate_dicom_mri.py
-│   ├── requirements.txt
-│   └── tests/
-└── go.mod
-```
+Contributions are welcome! Please feel free to submit issues and pull requests.
