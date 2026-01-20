@@ -81,12 +81,12 @@ func GenerateMetadata(opts MetadataOptions) *dicom.Dataset {
 
 	// Series Information Module
 	ds.Elements = append(ds.Elements, mustNewElement(tag.SeriesInstanceUID, []string{opts.SeriesUID}))
-	ds.Elements = append(ds.Elements, mustNewElement(tag.SeriesNumber, []int{opts.SeriesNumber}))
+	ds.Elements = append(ds.Elements, mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", opts.SeriesNumber)}))
 	ds.Elements = append(ds.Elements, mustNewElement(tag.SeriesDescription, []string{"MRI Scan"}))
 	ds.Elements = append(ds.Elements, mustNewElement(tag.Modality, []string{"MR"}))
 
 	// Instance Information Module
-	ds.Elements = append(ds.Elements, mustNewElement(tag.InstanceNumber, []int{opts.InstanceNumber}))
+	ds.Elements = append(ds.Elements, mustNewElement(tag.InstanceNumber, []string{fmt.Sprintf("%d", opts.InstanceNumber)}))
 	// SOP Class UID for MR Image Storage
 	ds.Elements = append(ds.Elements, mustNewElement(tag.SOPClassUID, []string{"1.2.840.10008.5.1.4.1.1.4"}))
 
