@@ -1,5 +1,8 @@
 # DICOM MRI Generator
 
+[![CI](https://github.com/mrsinham/dicomforge/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsinham/dicomforge/actions/workflows/ci.yml)
+[![Release](https://github.com/mrsinham/dicomforge/actions/workflows/release.yml/badge.svg)](https://github.com/mrsinham/dicomforge/actions/workflows/release.yml)
+
 A CLI tool to generate valid DICOM MRI series for testing medical imaging platforms.
 
 **Generates multiple DICOM files** (one per image) in a directory, using the standard format expected by medical platforms and PACS systems.

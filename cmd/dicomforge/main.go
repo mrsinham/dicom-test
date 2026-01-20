@@ -9,6 +9,9 @@ import (
 	"github.com/mrsinham/dicomforge/internal/dicom"
 )
 
+// version is set at build time via -ldflags
+var version = "dev"
+
 func main() {
 	// Define command-line flags
 	numImages := flag.Int("num-images", 0, "Number of images/slices to generate (required)")
@@ -18,8 +21,15 @@ func main() {
 	numStudies := flag.Int("num-studies", 1, "Number of studies to generate")
 	workers := flag.Int("workers", 0, fmt.Sprintf("Number of parallel workers (default: %d = CPU cores)", runtime.NumCPU()))
 	help := flag.Bool("help", false, "Show help message")
+	showVersion := flag.Bool("version", false, "Show version")
 
 	flag.Parse()
+
+	// Show version
+	if *showVersion {
+		fmt.Printf("dicomforge %s\n", version)
+		os.Exit(0)
+	}
 
 	// Show help
 	if *help {

@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Run tests
+        run: go test ./... -v -race
+
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: ""
+          - goos: linux
+            goarch: arm64
+            suffix: ""
+          - goos: darwin
+            goarch: amd64
+            suffix: ""
+          - goos: darwin
+            goarch: arm64
+            suffix: ""
+          - goos: windows
+            goarch: amd64
+            suffix: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o dicomforge-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/dicomforge/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dicomforge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dicomforge-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'dicomforge-*' -exec mv {} release/ \;
+          cd release
+          sha256sum * > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
