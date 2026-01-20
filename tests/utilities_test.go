@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/julien/dicom-test/go/internal/util"
+	"github.com/mrsinham/dicom-test/internal/util"
 )
 
 // TestUtil_ParseSize tests size parsing with various formats

@@ -5,15 +5,32 @@
 *.so
 *.dylib
 bin/
+generate-dicom-mri
 cmd/generate-dicom-mri/generate-dicom-mri
 
 # Test outputs
 test-*/
+test_structure/
 *.dcm
 DICOMDIR
+patient*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.pytest_cache/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# Git worktrees
+.worktrees/
+
+# Misc
+claude.md
+*.out

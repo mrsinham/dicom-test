@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	internaldicom "github.com/julien/dicom-test/go/internal/dicom"
+	internaldicom "github.com/mrsinham/dicom-test/internal/dicom"
 )
 
 // TestCompatibility_PythonValidation tests that Go-generated files are valid according to pydicom

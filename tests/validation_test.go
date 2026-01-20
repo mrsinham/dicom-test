@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	internaldicom "github.com/julien/dicom-test/go/internal/dicom"
+	internaldicom "github.com/mrsinham/dicom-test/internal/dicom"
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
 )

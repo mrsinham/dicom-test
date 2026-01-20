@@ -1,4 +1,4 @@
-module github.com/julien/dicom-test/go
+module github.com/mrsinham/dicom-test
 
 go 1.24.0
 

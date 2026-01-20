@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/julien/dicom-test/go/internal/dicom"
+	"github.com/mrsinham/dicom-test/internal/dicom"
 )
 
 func main() {
