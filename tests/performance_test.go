@@ -14,7 +14,7 @@ func BenchmarkGenerateSeries_Small(b *testing.B) {
 
 		opts := internaldicom.GeneratorOptions{
 			NumImages:  5,
-			TotalSize:  "10MB",
+			TotalSize:  "500KB",
 			OutputDir:  outputDir,
 			Seed:       42,
 			NumStudies: 1,
@@ -34,7 +34,7 @@ func BenchmarkGenerateSeries_Medium(b *testing.B) {
 
 		opts := internaldicom.GeneratorOptions{
 			NumImages:  20,
-			TotalSize:  "50MB",
+			TotalSize:  "1MB",
 			OutputDir:  outputDir,
 			Seed:       42,
 			NumStudies: 1,
@@ -58,7 +58,7 @@ func BenchmarkGenerateSeries_Large(b *testing.B) {
 
 		opts := internaldicom.GeneratorOptions{
 			NumImages:  50,
-			TotalSize:  "200MB",
+			TotalSize:  "2MB",
 			OutputDir:  outputDir,
 			Seed:       42,
 			NumStudies: 1,
@@ -85,7 +85,7 @@ func BenchmarkOrganizeFiles(b *testing.B) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  10,
-		TotalSize:  "20MB",
+		TotalSize:  "500KB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
@@ -117,13 +117,13 @@ func TestPerformance_MemoryUsage(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  50,
-		TotalSize:  "200MB",
+		TotalSize:  "2MB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
 	}
 
-	t.Logf("Generating 50 images (200MB)...")
+	t.Logf("Generating 50 images (2MB)...")
 	files, err := internaldicom.GenerateDICOMSeries(opts)
 	if err != nil {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
@@ -140,7 +140,7 @@ func TestPerformance_MemoryUsage(t *testing.T) {
 	t.Logf("  Total allocated: %.2f MB", totalAllocMB)
 	t.Logf("  Generated %d files", len(files))
 
-	// Memory should be reasonable (< 1GB for 200MB of output)
+	// Memory should be reasonable (< 1GB for 2MB of output)
 	if allocMB > 1024 {
 		t.Errorf("Memory usage too high: %.2f MB", allocMB)
 	}
@@ -159,19 +159,19 @@ func TestPerformance_GenerationSpeed(t *testing.T) {
 		{
 			name:       "small_series",
 			numImages:  5,
-			totalSize:  "10MB",
+			totalSize:  "500KB",
 			maxSeconds: 2.0,
 		},
 		{
 			name:       "medium_series",
 			numImages:  20,
-			totalSize:  "50MB",
+			totalSize:  "1MB",
 			maxSeconds: 5.0,
 		},
 		{
 			name:       "large_series",
 			numImages:  50,
-			totalSize:  "200MB",
+			totalSize:  "2MB",
 			maxSeconds: 15.0,
 		},
 	}

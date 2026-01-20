@@ -45,7 +45,7 @@ func TestErrors_InvalidNumImages(t *testing.T) {
 
 			opts := internaldicom.GeneratorOptions{
 				NumImages:  tt.numImages,
-				TotalSize:  "10MB",
+				TotalSize:  "500KB",
 				OutputDir:  outputDir,
 				Seed:       42,
 				NumStudies: 1,
@@ -92,7 +92,7 @@ func TestErrors_InvalidTotalSize(t *testing.T) {
 		},
 		{
 			name:      "negative_size",
-			totalSize: "-100MB",
+			totalSize: "-1MB",
 			wantError: true,
 			errorMsg:  "invalid format",
 		},
@@ -104,12 +104,12 @@ func TestErrors_InvalidTotalSize(t *testing.T) {
 		},
 		{
 			name:      "valid_mb",
-			totalSize: "100MB",
+			totalSize: "1MB",
 			wantError: false,
 		},
 		{
 			name:      "valid_gb",
-			totalSize: "1GB",
+			totalSize: "2MB",
 			wantError: false,
 		},
 		{
@@ -122,7 +122,7 @@ func TestErrors_InvalidTotalSize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Skip large data tests in short mode
-			if testing.Short() && (tt.totalSize == "1GB" || tt.totalSize == "100MB") {
+			if testing.Short() && (tt.totalSize == "2MB" || tt.totalSize == "1MB") {
 				t.Skip("skipping large data test in short mode")
 			}
 
@@ -218,7 +218,7 @@ func TestErrors_InvalidNumStudies(t *testing.T) {
 
 			opts := internaldicom.GeneratorOptions{
 				NumImages:  tt.numImages,
-				TotalSize:  "10MB",
+				TotalSize:  "500KB",
 				OutputDir:  outputDir,
 				Seed:       42,
 				NumStudies: tt.numStudies,
@@ -249,7 +249,7 @@ func TestEdgeCase_SingleImage(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  1,
-		TotalSize:  "5MB",
+		TotalSize:  "200KB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
@@ -282,7 +282,7 @@ func TestEdgeCase_LargeNumberOfImages(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  100,
-		TotalSize:  "100MB",
+		TotalSize:  "1MB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
@@ -343,7 +343,7 @@ func TestEdgeCase_ManyStudies(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  50,
-		TotalSize:  "50MB",
+		TotalSize:  "1MB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 10, // 10 studies

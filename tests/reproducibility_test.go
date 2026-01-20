@@ -18,7 +18,7 @@ func TestReproducibility_DifferentSeed(t *testing.T) {
 	outputDir1 := t.TempDir()
 	opts1 := internaldicom.GeneratorOptions{
 		NumImages:  5,
-		TotalSize:  "10MB",
+		TotalSize:  "500KB",
 		OutputDir:  outputDir1,
 		Seed:       42,
 		NumStudies: 1,
@@ -63,7 +63,7 @@ func TestReproducibility_AutoSeedFromDir(t *testing.T) {
 	outputDir1 := filepath.Join(baseTempDir, "run1", outputDirName)
 	opts1 := internaldicom.GeneratorOptions{
 		NumImages:  3,
-		TotalSize:  "5MB",
+		TotalSize:  "200KB",
 		OutputDir:  outputDir1,
 		Seed:       0, // Auto-generate from dir name
 		NumStudies: 1,
@@ -78,7 +78,7 @@ func TestReproducibility_AutoSeedFromDir(t *testing.T) {
 	outputDir2 := filepath.Join(baseTempDir, "run2", outputDirName)
 	opts2 := internaldicom.GeneratorOptions{
 		NumImages:  3,
-		TotalSize:  "5MB",
+		TotalSize:  "200KB",
 		OutputDir:  outputDir2,
 		Seed:       0, // Auto-generate from dir name
 		NumStudies: 1,
@@ -108,7 +108,7 @@ func TestReproducibility_MultipleSeries(t *testing.T) {
 		outputDir := t.TempDir()
 		opts := internaldicom.GeneratorOptions{
 			NumImages:  5,
-			TotalSize:  "10MB",
+			TotalSize:  "500KB",
 			OutputDir:  outputDir,
 			Seed:       seed,
 			NumStudies: 1,
@@ -175,7 +175,7 @@ func TestReproducibility_PatientNames(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  5,
-		TotalSize:  "10MB",
+		TotalSize:  "500KB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
@@ -230,7 +230,7 @@ func TestReproducibility_PixelData(t *testing.T) {
 	outputDir1 := t.TempDir()
 	opts1 := internaldicom.GeneratorOptions{
 		NumImages:  2,
-		TotalSize:  "5MB",
+		TotalSize:  "200KB",
 		OutputDir:  outputDir1,
 		Seed:       seed,
 		NumStudies: 1,
@@ -249,7 +249,7 @@ func TestReproducibility_PixelData(t *testing.T) {
 	outputDir2 := t.TempDir()
 	opts2 := internaldicom.GeneratorOptions{
 		NumImages:  2,
-		TotalSize:  "5MB",
+		TotalSize:  "200KB",
 		OutputDir:  outputDir2,
 		Seed:       seed,
 		NumStudies: 1,
@@ -294,7 +294,7 @@ func TestReproducibility_StudyUIDs(t *testing.T) {
 		outputDir := t.TempDir() + "/" + outputDirBase + "run"
 		opts := internaldicom.GeneratorOptions{
 			NumImages:  3,
-			TotalSize:  "5MB",
+			TotalSize:  "200KB",
 			OutputDir:  outputDir,
 			Seed:       42, // Same seed
 			NumStudies: 1,

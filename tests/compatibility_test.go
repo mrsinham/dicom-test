@@ -22,7 +22,7 @@ func TestCompatibility_PythonValidation(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  5,
-		TotalSize:  "10MB",
+		TotalSize:  "500KB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
@@ -69,7 +69,7 @@ func TestCompatibility_MetadataExtraction(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  3,
-		TotalSize:  "5MB",
+		TotalSize:  "200KB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
@@ -168,7 +168,7 @@ func TestCompatibility_DICOMDIRStructure(t *testing.T) {
 
 	opts := internaldicom.GeneratorOptions{
 		NumImages:  5,
-		TotalSize:  "10MB",
+		TotalSize:  "500KB",
 		OutputDir:  outputDir,
 		Seed:       42,
 		NumStudies: 1,
@@ -242,7 +242,7 @@ func TestCompatibility_SameSeedComparison(t *testing.T) {
 
 	seed := int64(42)
 	numImages := 3
-	size := "5MB"
+	size := "200KB"
 
 	// Generate with Go
 	goOutputDir := filepath.Join(t.TempDir(), "go-output")
