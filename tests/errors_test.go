@@ -121,6 +121,11 @@ func TestErrors_InvalidTotalSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Skip large data tests in short mode
+			if testing.Short() && (tt.totalSize == "1GB" || tt.totalSize == "100MB") {
+				t.Skip("skipping large data test in short mode")
+			}
+
 			outputDir := t.TempDir()
 
 			opts := internaldicom.GeneratorOptions{
