@@ -45,7 +45,12 @@ jobs:
       - name: Run gosec
         uses: securego/gosec@master
         with:
-          args: ./...
+          # Exclude rules that are false positives for this project:
+          # G115: integer overflow - values are bounded in context
+          # G301/G302: permissions - 0755/0644 are standard for user tools
+          # G304: path traversal - user controls paths intentionally
+          # G404: weak RNG - intentional for reproducibility, not crypto
+          args: -exclude=G115,G301,G302,G304,G404 ./...
 
   test:
     name: Test (Go ${{ matrix.go-version }})

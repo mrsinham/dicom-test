@@ -335,7 +335,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	} else {
 		// Generate deterministic seed from output directory name
 		h := fnv.New64a()
-		h.Write([]byte(opts.OutputDir))
+		_, _ = h.Write([]byte(opts.OutputDir)) // hash.Write never returns an error
 		seed = int64(h.Sum64())
 		fmt.Printf("Auto-generated seed from '%s': %d\n", opts.OutputDir, seed)
 		fmt.Println("  (same directory = same patient/study IDs)")
@@ -505,7 +505,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 			// Generate deterministic pixel seed for this specific image
 			pixelSeedHash := fnv.New64a()
-			pixelSeedHash.Write([]byte(fmt.Sprintf("%d_pixel_%d", seed, globalImageIndex)))
+			_, _ = pixelSeedHash.Write([]byte(fmt.Sprintf("%d_pixel_%d", seed, globalImageIndex)))
 			pixelSeed := pixelSeedHash.Sum64()
 
 			filename := fmt.Sprintf("IMG%04d.dcm", globalImageIndex)
