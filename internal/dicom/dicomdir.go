@@ -578,16 +578,6 @@ func updateOffsetsInFile(path string, data []byte, recordPositions []int64) erro
 	return nil
 }
 
-// shouldBeLowerLevel determines if recordB should be a child of recordA based on DICOM hierarchy
-func shouldBeLowerLevel(typeA, typeB string) bool {
-	hierarchy := map[string]string{
-		"PATIENT": "STUDY",
-		"STUDY":   "SERIES",
-		"SERIES":  "IMAGE",
-	}
-	return hierarchy[typeA] == typeB
-}
-
 // RecordInfo holds information about a directory record
 type RecordInfo struct {
 	Type     string

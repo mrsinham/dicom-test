@@ -204,8 +204,7 @@ func TestValidation_ImagePosition(t *testing.T) {
 	seriesDir := filepath.Join(outputDir, "PT000000", "ST000000", "SE000000")
 
 	for i := 1; i <= 3; i++ {
-		imagePath := filepath.Join(seriesDir, filepath.Base(filepath.Join(seriesDir, "IM"+strings.Repeat("0", 6-len(string(rune(i))))+string(rune(i+'0')))))
-		imagePath = filepath.Join(seriesDir, "IM"+padInt(i, 6))
+		imagePath := filepath.Join(seriesDir, "IM"+padInt(i, 6))
 
 		ds, err := dicom.ParseFile(imagePath, nil)
 		if err != nil {
@@ -402,37 +401,4 @@ func TestValidation_UIDUniqueness(t *testing.T) {
 // Helper function to pad integers
 func padInt(n, width int) string {
 	return fmt.Sprintf("%0*d", width, n)
-}
-
-// Old broken implementation - keeping for reference
-func padIntOld(n, width int) string {
-	s := ""
-	for i := 0; i < width; i++ {
-		s += "0"
-	}
-	result := s + string(rune(n+'0'))
-	if len(result) > width {
-		return result[len(result)-width:]
-	}
-
-	// Better implementation
-	var digits []int
-	num := n
-	if num == 0 {
-		digits = []int{0}
-	} else {
-		for num > 0 {
-			digits = append([]int{num % 10}, digits...)
-			num /= 10
-		}
-	}
-
-	result = ""
-	for i := 0; i < width-len(digits); i++ {
-		result += "0"
-	}
-	for _, d := range digits {
-		result += string(rune(d + '0'))
-	}
-	return result
 }

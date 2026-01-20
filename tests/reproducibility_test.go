@@ -241,7 +241,7 @@ func TestReproducibility_PixelData(t *testing.T) {
 		t.Fatalf("First generation failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir1, nil)
+	_ = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir1, nil)
 	// This will fail because we didn't pass files, but that's OK for this test
 	// We'll just check files were created
 
