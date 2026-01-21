@@ -68,9 +68,51 @@ jobs:
           name: dicomforge-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dicomforge-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
 
+  package:
+    name: Package
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: dicomforge-linux-${{ matrix.goarch }}
+
+      - name: Install nfpm
+        run: |
+          curl -sfL https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_linux_amd64.tar.gz | tar xz
+          sudo mv nfpm /usr/local/bin/
+
+      - name: Build packages
+        env:
+          VERSION: ${{ github.ref_name }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          # Remove 'v' prefix from version
+          export VERSION=${VERSION#v}
+          nfpm package -p deb -t dicomforge_${VERSION}_${{ matrix.goarch }}.deb
+          nfpm package -p rpm -t dicomforge-${VERSION}.${{ matrix.goarch }}.rpm
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: dicomforge-deb-${{ matrix.goarch }}
+          path: "*.deb"
+
+      - name: Upload rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: dicomforge-rpm-${{ matrix.goarch }}
+          path: "*.rpm"
+
   release:
     name: Release
-    needs: build
+    needs: [build, package]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +125,7 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          find artifacts -type f -name 'dicomforge-*' -exec mv {} release/ \;
+          find artifacts -type f \( -name 'dicomforge-*' -o -name '*.deb' -o -name '*.rpm' \) -exec mv {} release/ \;
           cd release
           sha256sum * > checksums.txt
 
