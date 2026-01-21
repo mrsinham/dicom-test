@@ -1,0 +1,15 @@
+name: dicomforge
+arch: ${GOARCH}
+platform: linux
+version: ${VERSION}
+maintainer: mrsinham
+description: CLI tool to generate valid DICOM MRI series for testing medical imaging platforms
+vendor: mrsinham
+homepage: https://github.com/mrsinham/dicomforge
+license: MIT
+
+contents:
+  - src: dicomforge-linux-${GOARCH}
+    dst: /usr/bin/dicomforge
+    file_info:
+      mode: 0755
