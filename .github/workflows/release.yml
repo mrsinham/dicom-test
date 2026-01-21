@@ -94,3 +94,111 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref, '-') }}
+    steps:
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Download binaries and compute SHA256
+        id: sha256
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          BASE_URL="https://github.com/mrsinham/dicomforge/releases/download/v${VERSION}"
+
+          # Wait for release assets to be available
+          sleep 10
+
+          # Download and compute SHA256 for each platform
+          curl -sL "${BASE_URL}/dicomforge-darwin-amd64" -o darwin-amd64
+          curl -sL "${BASE_URL}/dicomforge-darwin-arm64" -o darwin-arm64
+          curl -sL "${BASE_URL}/dicomforge-linux-amd64" -o linux-amd64
+          curl -sL "${BASE_URL}/dicomforge-linux-arm64" -o linux-arm64
+
+          echo "darwin_amd64=$(sha256sum darwin-amd64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "darwin_arm64=$(sha256sum darwin-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(sha256sum linux-amd64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(sha256sum linux-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+
+          # Clone the tap repository
+          git clone https://x-access-token:${GH_TOKEN}@github.com/mrsinham/homebrew-tap.git
+          cd homebrew-tap
+
+          # Generate the updated formula
+          cat > Formula/dicomforge.rb << 'FORMULA_EOF'
+          class Dicomforge < Formula
+            desc "CLI tool to generate valid DICOM MRI series for testing"
+            homepage "https://github.com/mrsinham/dicomforge"
+            version "VERSION_PLACEHOLDER"
+            license "MIT"
+
+            on_macos do
+              on_intel do
+                url "https://github.com/mrsinham/dicomforge/releases/download/vVERSION_PLACEHOLDER/dicomforge-darwin-amd64"
+                sha256 "SHA_DARWIN_AMD64"
+
+                def install
+                  bin.install "dicomforge-darwin-amd64" => "dicomforge"
+                end
+              end
+
+              on_arm do
+                url "https://github.com/mrsinham/dicomforge/releases/download/vVERSION_PLACEHOLDER/dicomforge-darwin-arm64"
+                sha256 "SHA_DARWIN_ARM64"
+
+                def install
+                  bin.install "dicomforge-darwin-arm64" => "dicomforge"
+                end
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/mrsinham/dicomforge/releases/download/vVERSION_PLACEHOLDER/dicomforge-linux-amd64"
+                sha256 "SHA_LINUX_AMD64"
+
+                def install
+                  bin.install "dicomforge-linux-amd64" => "dicomforge"
+                end
+              end
+
+              on_arm do
+                url "https://github.com/mrsinham/dicomforge/releases/download/vVERSION_PLACEHOLDER/dicomforge-linux-arm64"
+                sha256 "SHA_LINUX_ARM64"
+
+                def install
+                  bin.install "dicomforge-linux-arm64" => "dicomforge"
+                end
+              end
+            end
+
+            test do
+              assert_match "dicomforge", shell_output("#{bin}/dicomforge --version")
+            end
+          end
+          FORMULA_EOF
+
+          # Replace placeholders
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" Formula/dicomforge.rb
+          sed -i "s/SHA_DARWIN_AMD64/${{ steps.sha256.outputs.darwin_amd64 }}/g" Formula/dicomforge.rb
+          sed -i "s/SHA_DARWIN_ARM64/${{ steps.sha256.outputs.darwin_arm64 }}/g" Formula/dicomforge.rb
+          sed -i "s/SHA_LINUX_AMD64/${{ steps.sha256.outputs.linux_amd64 }}/g" Formula/dicomforge.rb
+          sed -i "s/SHA_LINUX_ARM64/${{ steps.sha256.outputs.linux_arm64 }}/g" Formula/dicomforge.rb
+
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/dicomforge.rb
+          git commit -m "Update dicomforge to v${VERSION}"
+          git push
