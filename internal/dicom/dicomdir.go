@@ -170,7 +170,7 @@ func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile) error {
 	fmt.Printf("Import the complete directory: %s/\n", outputDir)
 	fmt.Println("\nStandard DICOM structure created:")
 	fmt.Println("  - DICOMDIR (index file)")
-	fmt.Println("  - PT000000/ST000000/SE000000/ (patient/study/series hierarchy)")
+	fmt.Println("  - PT*/ST*/SE*/ (patient/study/series hierarchy)")
 
 	return nil
 }
@@ -283,8 +283,8 @@ func createDICOMDIRFile(outputDir string) error {
 						study.StudyTime = getStringValue(ds, tag.StudyTime)[0]
 					}
 
-					// Get patient info from first image
-					if len(patients) == 0 && len(study.Series) == 0 && len(series.Images) == 1 {
+					// Get patient info from first image of this patient
+					if patient.PatientID == "" && len(series.Images) == 1 {
 						patient.PatientID = getStringValue(ds, tag.PatientID)[0]
 						patient.PatientName = getStringValue(ds, tag.PatientName)[0]
 					}
@@ -603,7 +603,8 @@ func buildHierarchy(records []RecordInfo) map[int]HierarchyInfo {
 		Children []int // indices of direct children
 	}
 
-	var stack []*LevelState // stack of current items at each hierarchy level
+	var stack []*LevelState       // stack of current items at each hierarchy level
+	var rootRecords []int         // indices of root-level records (PATIENT)
 
 	for i, record := range records {
 		// Pop stack until we find where this record belongs
@@ -618,6 +619,16 @@ func buildHierarchy(records []RecordInfo) map[int]HierarchyInfo {
 		if len(stack) > 0 {
 			parent := stack[len(stack)-1]
 			parent.Children = append(parent.Children, i)
+		} else {
+			// This is a root-level record (PATIENT)
+			// Link to previous root record if exists
+			if len(rootRecords) > 0 {
+				prevRootIdx := rootRecords[len(rootRecords)-1]
+				info := result[prevRootIdx]
+				info.NextSibling = uint32(records[i].Position)
+				result[prevRootIdx] = info
+			}
+			rootRecords = append(rootRecords, i)
 		}
 
 		// Push this record onto the stack
