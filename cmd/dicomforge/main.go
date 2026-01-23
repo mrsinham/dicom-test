@@ -30,6 +30,13 @@ func main() {
 	priority := flag.String("priority", "ROUTINE", "Exam priority: HIGH, ROUTINE, LOW")
 	variedMetadata := flag.Bool("varied-metadata", false, "Generate varied institutions/physicians across studies")
 
+	// Custom tag options
+	var tagFlags []string
+	flag.Func("tag", "Set DICOM tag: 'TagName=Value' (repeatable)", func(s string) error {
+		tagFlags = append(tagFlags, s)
+		return nil
+	})
+
 	help := flag.Bool("help", false, "Show help message")
 	showVersion := flag.Bool("version", false, "Show version")
 
@@ -87,6 +94,18 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Parse and validate custom tags
+	parsedTags, err := util.ParseTagFlags(tagFlags)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Print custom tags info if specified
+	if len(parsedTags) > 0 {
+		fmt.Printf("Custom tags: %d specified\n", len(parsedTags))
 	}
 
 	// Create generator options
@@ -159,6 +178,10 @@ func printHelp() {
 	fmt.Println("  --body-part <PART>    Body part examined (random per modality if not specified)")
 	fmt.Println("  --priority <PRIORITY> Exam priority: HIGH, ROUTINE, LOW (default: ROUTINE)")
 	fmt.Println("  --varied-metadata     Generate varied institutions/physicians across studies")
+	fmt.Println()
+	fmt.Println("Custom tags:")
+	fmt.Println("  --tag <NAME=VALUE>    Set DICOM tag value (repeatable)")
+	fmt.Println("                        Example: --tag \"InstitutionName=CHU Bordeaux\"")
 	fmt.Println()
 	fmt.Println("  --help                Show this help message")
 	fmt.Println()
