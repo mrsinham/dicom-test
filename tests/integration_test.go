@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	internaldicom "github.com/mrsinham/dicomforge/internal/dicom"
+	"github.com/mrsinham/dicomforge/internal/util"
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
 )
@@ -400,5 +401,90 @@ func TestCalculateDimensions(t *testing.T) {
 					w, h, tt.wantMin, tt.wantMax)
 			}
 		})
+	}
+}
+
+// TestCategorizationTags tests that categorization tags are correctly written to DICOM files
+func TestCategorizationTags(t *testing.T) {
+	// Create temp directory
+	tmpDir, err := os.MkdirTemp("", "dicom_categorization_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Generate DICOM with categorization options
+	opts := internaldicom.GeneratorOptions{
+		NumImages:      2,
+		TotalSize:      "1MB",
+		OutputDir:      tmpDir,
+		Seed:           12345,
+		NumStudies:     1,
+		NumPatients:    1,
+		Institution:    "Test Hospital",
+		Department:     "Radiology",
+		BodyPart:       "HEAD",
+		Priority:       util.PriorityHigh,
+		VariedMetadata: false,
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("Failed to generate DICOM: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("Expected 2 files, got %d", len(files))
+	}
+
+	// Read first file and verify tags
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("Failed to parse DICOM: %v", err)
+	}
+
+	// Check InstitutionName
+	elem, err := ds.FindElementByTag(tag.InstitutionName)
+	if err != nil {
+		t.Error("InstitutionName tag not found")
+	} else {
+		val := elem.Value.GetValue().([]string)[0]
+		if val != "Test Hospital" {
+			t.Errorf("InstitutionName = %s, want Test Hospital", val)
+		}
+	}
+
+	// Check BodyPartExamined
+	elem, err = ds.FindElementByTag(tag.BodyPartExamined)
+	if err != nil {
+		t.Error("BodyPartExamined tag not found")
+	} else {
+		val := elem.Value.GetValue().([]string)[0]
+		if val != "HEAD" {
+			t.Errorf("BodyPartExamined = %s, want HEAD", val)
+		}
+	}
+
+	// Check RequestedProcedurePriority (Priority)
+	elem, err = ds.FindElementByTag(tag.RequestedProcedurePriority)
+	if err != nil {
+		t.Error("RequestedProcedurePriority tag not found")
+	} else {
+		val := elem.Value.GetValue().([]string)[0]
+		if val != "HIGH" {
+			t.Errorf("RequestedProcedurePriority = %s, want HIGH", val)
+		}
+	}
+
+	// Check ReferringPhysicianName exists
+	_, err = ds.FindElementByTag(tag.ReferringPhysicianName)
+	if err != nil {
+		t.Error("ReferringPhysicianName tag not found")
+	}
+
+	// Check ProtocolName exists
+	_, err = ds.FindElementByTag(tag.ProtocolName)
+	if err != nil {
+		t.Error("ProtocolName tag not found")
 	}
 }
