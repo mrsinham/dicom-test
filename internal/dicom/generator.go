@@ -159,6 +159,13 @@ type GeneratorOptions struct {
 	NumStudies  int
 	NumPatients int // Number of patients (studies are distributed among patients)
 	Workers     int // Number of parallel workers (0 = auto-detect based on CPU cores)
+
+	// Categorization options
+	Institution    string        // Fixed institution name (empty = random)
+	Department     string        // Fixed department name (empty = random)
+	BodyPart       string        // Fixed body part (empty = random per modality)
+	Priority       util.Priority // Exam priority
+	VariedMetadata bool          // Generate varied institutions/physicians per study
 }
 
 // patientInfo holds generated patient data
@@ -374,6 +381,32 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		patients[i].Name = util.GeneratePatientName(patients[i].Sex, rng)
 	}
 
+	// Generate institution info (shared or varied per study)
+	var defaultInstitution util.Institution
+	if !opts.VariedMetadata {
+		if opts.Institution != "" {
+			defaultInstitution = util.Institution{
+				Name:       opts.Institution,
+				Address:    "",
+				Department: opts.Department,
+			}
+			if defaultInstitution.Department == "" {
+				defaultInstitution.Department = util.Departments[rng.IntN(len(util.Departments))]
+			}
+		} else {
+			defaultInstitution = util.GenerateInstitution(rng)
+			if opts.Department != "" {
+				defaultInstitution.Department = opts.Department
+			}
+		}
+	}
+
+	// Generate body part (if fixed)
+	bodyPart := opts.BodyPart
+	if bodyPart == "" {
+		bodyPart = util.GenerateBodyPart("MR", rng)
+	}
+
 	// Calculate studies per patient (distribute evenly)
 	studiesPerPatient := opts.NumStudies / opts.NumPatients
 	remainingStudies := opts.NumStudies % opts.NumPatients
@@ -489,6 +522,21 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
 			seriesPixelSpacing, seriesSliceThickness)
 
+		// Categorization metadata for this study
+		var studyInstitution util.Institution
+		if opts.VariedMetadata {
+			studyInstitution = util.GenerateInstitution(rng)
+		} else {
+			studyInstitution = defaultInstitution
+		}
+
+		referringPhysician := util.GeneratePhysicianName(rng)
+		performingPhysician := util.GeneratePhysicianName(rng)
+		operatorName := util.GeneratePhysicianName(rng)
+		protocolName := util.GenerateProtocolName("MR", bodyPart, rng)
+		clinicalIndication := util.GenerateClinicalIndication("MR", bodyPart, rng)
+		stationName := util.GenerateStationName("MR", bodyPart, rng)
+
 		// Build tasks for each image in this study
 		for instanceInStudy := 1; instanceInStudy <= numImagesThisStudy; instanceInStudy++ {
 			sopInstanceUID := util.GenerateDeterministicUID(
@@ -552,6 +600,17 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				mustNewElement(tag.PixelRepresentation, []int{0}),
 				mustNewElement(tag.SamplesPerPixel, []int{1}),
 				mustNewElement(tag.PhotometricInterpretation, []string{"MONOCHROME2"}),
+				// Categorization tags
+				mustNewElement(tag.InstitutionName, []string{studyInstitution.Name}),
+				mustNewElement(tag.InstitutionalDepartmentName, []string{studyInstitution.Department}),
+				mustNewElement(tag.StationName, []string{stationName}),
+				mustNewElement(tag.ReferringPhysicianName, []string{referringPhysician}),
+				mustNewElement(tag.PerformingPhysicianName, []string{performingPhysician}),
+				mustNewElement(tag.OperatorsName, []string{operatorName}),
+				mustNewElement(tag.BodyPartExamined, []string{bodyPart}),
+				mustNewElement(tag.ProtocolName, []string{protocolName}),
+				mustNewElement(tag.RequestedProcedureDescription, []string{clinicalIndication}),
+				mustNewElement(tag.RequestedProcedurePriority, []string{opts.Priority.String()}),
 			}
 
 			// Generate deterministic pixel seed for this specific image

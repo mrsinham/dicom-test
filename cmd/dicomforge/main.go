@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"github.com/mrsinham/dicomforge/internal/dicom"
+	"github.com/mrsinham/dicomforge/internal/util"
 )
 
 // version is set at build time via -ldflags
@@ -21,6 +22,14 @@ func main() {
 	numStudies := flag.Int("num-studies", 1, "Number of studies to generate")
 	numPatients := flag.Int("num-patients", 1, "Number of patients (studies are distributed among patients)")
 	workers := flag.Int("workers", 0, fmt.Sprintf("Number of parallel workers (default: %d = CPU cores)", runtime.NumCPU()))
+
+	// Categorization options
+	institution := flag.String("institution", "", "Institution name (random if not specified)")
+	department := flag.String("department", "", "Department name (random if not specified)")
+	bodyPart := flag.String("body-part", "", "Body part examined (random per modality if not specified)")
+	priority := flag.String("priority", "ROUTINE", "Exam priority: HIGH, ROUTINE, LOW")
+	variedMetadata := flag.Bool("varied-metadata", false, "Generate varied institutions/physicians across studies")
+
 	help := flag.Bool("help", false, "Show help message")
 	showVersion := flag.Bool("version", false, "Show version")
 
@@ -73,15 +82,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Parse priority
+	parsedPriority, err := util.ParsePriority(*priority)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Create generator options
 	opts := dicom.GeneratorOptions{
-		NumImages:   *numImages,
-		TotalSize:   *totalSize,
-		OutputDir:   *outputDir,
-		Seed:        *seed,
-		NumStudies:  *numStudies,
-		NumPatients: *numPatients,
-		Workers:     *workers,
+		NumImages:      *numImages,
+		TotalSize:      *totalSize,
+		OutputDir:      *outputDir,
+		Seed:           *seed,
+		NumStudies:     *numStudies,
+		NumPatients:    *numPatients,
+		Workers:        *workers,
+		Institution:    *institution,
+		Department:     *department,
+		BodyPart:       *bodyPart,
+		Priority:       parsedPriority,
+		VariedMetadata: *variedMetadata,
 	}
 
 	// Generate DICOM series
@@ -131,6 +152,14 @@ func printHelp() {
 	fmt.Println("  --num-studies <N>     Number of studies to generate (default: 1)")
 	fmt.Println("  --num-patients <N>    Number of patients (default: 1, studies distributed among patients)")
 	fmt.Printf("  --workers <N>         Number of parallel workers (default: %d = CPU cores)\n", runtime.NumCPU())
+	fmt.Println()
+	fmt.Println("Categorization options:")
+	fmt.Println("  --institution <NAME>  Institution name (random if not specified)")
+	fmt.Println("  --department <NAME>   Department name (random if not specified)")
+	fmt.Println("  --body-part <PART>    Body part examined (random per modality if not specified)")
+	fmt.Println("  --priority <PRIORITY> Exam priority: HIGH, ROUTINE, LOW (default: ROUTINE)")
+	fmt.Println("  --varied-metadata     Generate varied institutions/physicians across studies")
+	fmt.Println()
 	fmt.Println("  --help                Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
