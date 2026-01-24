@@ -132,7 +132,13 @@ func TestPerformance_MemoryUsage(t *testing.T) {
 	runtime.GC()
 	runtime.ReadMemStats(&m2)
 
-	allocMB := float64(m2.Alloc-m1.Alloc) / (1024 * 1024)
+	// Use signed arithmetic to handle case where GC freed memory between measurements
+	var allocMB float64
+	if m2.Alloc >= m1.Alloc {
+		allocMB = float64(m2.Alloc-m1.Alloc) / (1024 * 1024)
+	} else {
+		allocMB = 0 // Memory was freed
+	}
 	totalAllocMB := float64(m2.TotalAlloc-m1.TotalAlloc) / (1024 * 1024)
 
 	t.Logf("Memory usage:")

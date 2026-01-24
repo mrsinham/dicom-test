@@ -13,11 +13,15 @@ type Modality string
 const (
 	MR Modality = "MR" // Magnetic Resonance
 	CT Modality = "CT" // Computed Tomography
+	CR Modality = "CR" // Computed Radiography
+	DX Modality = "DX" // Digital X-Ray
+	US Modality = "US" // Ultrasound
+	MG Modality = "MG" // Mammography
 )
 
 // AllModalities returns all supported modalities.
 func AllModalities() []Modality {
-	return []Modality{MR, CT}
+	return []Modality{MR, CT, CR, DX, US, MG}
 }
 
 // IsValid checks if a modality string is valid.
@@ -49,20 +53,39 @@ type SeriesParams struct {
 	WindowWidth  float64
 
 	// MR-specific
-	EchoTime             float64
-	RepetitionTime       float64
-	FlipAngle            float64
-	SequenceName         string
+	EchoTime              float64
+	RepetitionTime        float64
+	FlipAngle             float64
+	SequenceName          string
 	MagneticFieldStrength float64
-	ImagingFrequency     float64
+	ImagingFrequency      float64
 
 	// CT-specific
-	KVP                float64 // Tube voltage (kV)
-	XRayTubeCurrent    int     // Tube current (mA)
-	ConvolutionKernel  string  // Reconstruction kernel
-	RescaleIntercept   float64 // HU offset (-1024)
-	RescaleSlope       float64 // HU scale (1)
-	GantryTilt         float64 // Gantry tilt angle
+	KVP               float64 // Tube voltage (kV)
+	XRayTubeCurrent   int     // Tube current (mA)
+	ConvolutionKernel string  // Reconstruction kernel
+	RescaleIntercept  float64 // HU offset (-1024)
+	RescaleSlope      float64 // HU scale (1)
+	GantryTilt        float64 // Gantry tilt angle
+
+	// CR/DX-specific (Radiography)
+	ViewPosition             string  // AP, PA, LAT, LL, RL
+	ImagerPixelSpacing       float64 // Detector pixel spacing
+	DistanceSourceToDetector float64 // SID (mm)
+	DistanceSourceToPatient  float64 // SOD (mm)
+	Exposure                 int     // Exposure (mAs)
+	ExposureTime             int     // Exposure time (ms)
+
+	// US-specific (Ultrasound)
+	TransducerType      string  // LINEAR, CONVEX, PHASED
+	TransducerFrequency float64 // MHz
+
+	// MG-specific (Mammography)
+	ImageLaterality     string  // L, R
+	AnodeTargetMaterial string  // MOLYBDENUM, RHODIUM, TUNGSTEN
+	FilterMaterial      string  // MOLYBDENUM, RHODIUM, SILVER
+	CompressionForce    float64 // Newtons
+	OrganDose           float64 // mGy
 
 	// Geometry (common)
 	PixelSpacing         float64
@@ -117,6 +140,14 @@ func GetGenerator(m Modality) Generator {
 	switch m {
 	case CT:
 		return &CTGenerator{}
+	case CR:
+		return &CRGenerator{}
+	case DX:
+		return &DXGenerator{}
+	case US:
+		return &USGenerator{}
+	case MG:
+		return &MGGenerator{}
 	case MR:
 		fallthrough
 	default:

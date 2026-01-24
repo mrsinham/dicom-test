@@ -27,7 +27,7 @@ func main() {
 	workers := flag.Int("workers", 0, fmt.Sprintf("Number of parallel workers (default: %d = CPU cores)", runtime.NumCPU()))
 
 	// Modality selection
-	modality := flag.String("modality", "MR", "Imaging modality: MR, CT (default: MR)")
+	modality := flag.String("modality", "MR", "Imaging modality: MR, CT, CR, DX, US, MG (default: MR)")
 
 	// Categorization options
 	institution := flag.String("institution", "", "Institution name (random if not specified)")
@@ -208,7 +208,7 @@ func printHelp() {
 	fmt.Println("Optional arguments:")
 	fmt.Println("  --output <DIR>        Output directory (default: 'dicom_series')")
 	fmt.Println("  --seed <N>            Seed for reproducibility (auto-generated if not specified)")
-	fmt.Println("  --modality <MOD>      Imaging modality: MR, CT (default: MR)")
+	fmt.Println("  --modality <MOD>      Imaging modality: MR, CT, CR, DX, US, MG (default: MR)")
 	fmt.Println("  --num-studies <N>     Number of studies to generate (default: 1)")
 	fmt.Println("  --num-patients <N>    Number of patients (default: 1, studies distributed among patients)")
 	fmt.Printf("  --workers <N>         Number of parallel workers (default: %d = CPU cores)\n", runtime.NumCPU())
@@ -237,6 +237,15 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("  # Generate CT scan with 100 slices")
 	fmt.Println("  dicomforge --num-images 100 --total-size 200MB --modality CT")
+	fmt.Println()
+	fmt.Println("  # Generate chest X-ray (DX)")
+	fmt.Println("  dicomforge --num-images 2 --total-size 50MB --modality DX --body-part CHEST")
+	fmt.Println()
+	fmt.Println("  # Generate ultrasound images")
+	fmt.Println("  dicomforge --num-images 20 --total-size 30MB --modality US")
+	fmt.Println()
+	fmt.Println("  # Generate mammography images")
+	fmt.Println("  dicomforge --num-images 4 --total-size 100MB --modality MG")
 	fmt.Println()
 	fmt.Println("  # Generate 120 images, 4.5GB, with specific seed")
 	fmt.Println("  dicomforge --num-images 120 --total-size 4.5GB --seed 42")

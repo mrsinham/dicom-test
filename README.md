@@ -3,7 +3,7 @@
 [![CI](https://github.com/mrsinham/dicomforge/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsinham/dicomforge/actions/workflows/ci.yml)
 [![Release](https://github.com/mrsinham/dicomforge/actions/workflows/release.yml/badge.svg)](https://github.com/mrsinham/dicomforge/actions/workflows/release.yml)
 
-A CLI tool to generate valid DICOM series for testing medical imaging platforms. Supports MR (Magnetic Resonance) and CT (Computed Tomography) modalities.
+A CLI tool to generate valid DICOM series for testing medical imaging platforms. Supports multiple modalities: MR, CT, CR, DX, US, and MG.
 
 **Generates multiple DICOM files** (one per image) in a directory, using the standard format expected by medical platforms and PACS systems.
 
@@ -74,6 +74,15 @@ go build -o dicomforge ./cmd/dicomforge/
 
 # Generate a CT series (100 slices)
 ./dicomforge --num-images 100 --total-size 200MB --modality CT --output ct_series
+
+# Generate chest X-ray images (DX)
+./dicomforge --num-images 2 --total-size 50MB --modality DX --body-part CHEST
+
+# Generate ultrasound images
+./dicomforge --num-images 20 --total-size 30MB --modality US
+
+# Generate mammography images
+./dicomforge --num-images 4 --total-size 100MB --modality MG
 ```
 
 ## Usage
@@ -95,7 +104,7 @@ go build -o dicomforge ./cmd/dicomforge/
 |----------|-------------|---------|
 | `--output` | Output directory name | `dicom_series` |
 | `--seed` | Random seed for reproducibility | auto-generated |
-| `--modality` | Imaging modality: `MR` or `CT` | `MR` |
+| `--modality` | Imaging modality: `MR`, `CT`, `CR`, `DX`, `US`, `MG` | `MR` |
 | `--num-studies` | Number of studies to generate | `1` |
 | `--num-patients` | Number of patients (studies distributed among them) | `1` |
 | `--workers` | Number of parallel workers | CPU core count |
@@ -109,10 +118,20 @@ go build -o dicomforge ./cmd/dicomforge/
 |----------|-------------|-----------|
 | `MR` | Magnetic Resonance Imaging | MR Image Storage |
 | `CT` | Computed Tomography | CT Image Storage |
+| `CR` | Computed Radiography | Computed Radiography Image Storage |
+| `DX` | Digital X-Ray | Digital X-Ray Image Storage |
+| `US` | Ultrasound | Ultrasound Image Storage |
+| `MG` | Mammography | Digital Mammography X-Ray Image Storage |
 
 **MR-specific features:** Realistic parameters (EchoTime, RepetitionTime, FlipAngle), scanner models from Siemens, GE, and Philips (1.5T and 3.0T).
 
 **CT-specific features:** Hounsfield units (RescaleIntercept=-1024), KVP, XRayTubeCurrent, ConvolutionKernel, scanner models with detector rows (64-320 rows).
+
+**CR/DX-specific features:** ViewPosition, ImagerPixelSpacing, DistanceSourceToDetector, Exposure parameters.
+
+**US-specific features:** TransducerType (LINEAR, CONVEX, PHASED), TransducerFrequency, 8-bit grayscale images.
+
+**MG-specific features:** ImageLaterality (L/R), ViewPosition (CC, MLO), AnodeTargetMaterial, CompressionForce, high-resolution 14-bit images.
 
 ### Edge Case Types
 
@@ -184,7 +203,7 @@ This hierarchy follows the DICOM standard and is compatible with:
 ## Features
 
 - **Standard DICOM format**: Generates valid DICOM files readable by any compliant software
-- **Multiple modalities**: Supports MR and CT with modality-specific parameters
+- **Multiple modalities**: Supports MR, CT, CR, DX, US, and MG with modality-specific parameters
 - **DICOMDIR support**: Automatic directory index file creation
 - **PT/ST/SE hierarchy**: Standard patient/study/series folder structure
 - **Visual overlay**: Each image shows "File X/Y" text for easy verification
@@ -241,7 +260,7 @@ go test -v ./...
 ├── internal/
 │   ├── dicom/                 # DICOM generation and DICOMDIR
 │   │   ├── edgecases/         # Edge case generation
-│   │   └── modalities/        # Modality-specific generators (MR, CT)
+│   │   └── modalities/        # Modality-specific generators (MR, CT, CR, DX, US, MG)
 │   ├── image/                 # Pixel data generation
 │   └── util/                  # Utilities (UID generation, size parsing)
 ├── tests/                     # Integration tests

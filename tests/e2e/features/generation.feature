@@ -183,3 +183,61 @@ Feature: DICOM Generation
     When I run dicomforge with "--num-images 3 --total-size 200KB --modality INVALID --output {tmpdir}"
     Then the exit code should be 1
     And the output should contain "invalid modality"
+
+  # Additional Modalities
+
+  Scenario: Generate CR series
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 3 --total-size 200KB --modality CR --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 3 DICOM files
+    And DICOM tag "Modality" in "{tmpdir}" should contain "CR"
+    And dcmdump should successfully parse all files in "{tmpdir}"
+
+  Scenario: Generate CR with correct SOP Class
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --modality CR --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "SOPClassUID" in "{tmpdir}" should contain "ComputedRadiographyImageStorage"
+
+  Scenario: Generate DX series
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 3 --total-size 200KB --modality DX --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 3 DICOM files
+    And DICOM tag "Modality" in "{tmpdir}" should contain "DX"
+    And dcmdump should successfully parse all files in "{tmpdir}"
+
+  Scenario: Generate DX with correct SOP Class
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --modality DX --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "SOPClassUID" in "{tmpdir}" should contain "DigitalXRayImageStorageForPresentation"
+
+  Scenario: Generate US series
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 3 --total-size 200KB --modality US --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 3 DICOM files
+    And DICOM tag "Modality" in "{tmpdir}" should contain "US"
+    And dcmdump should successfully parse all files in "{tmpdir}"
+
+  Scenario: Generate US with correct SOP Class
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --modality US --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "SOPClassUID" in "{tmpdir}" should contain "UltrasoundImageStorage"
+
+  Scenario: Generate MG series
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 3 --total-size 200KB --modality MG --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 3 DICOM files
+    And DICOM tag "Modality" in "{tmpdir}" should contain "MG"
+    And dcmdump should successfully parse all files in "{tmpdir}"
+
+  Scenario: Generate MG with correct SOP Class
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --modality MG --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "SOPClassUID" in "{tmpdir}" should contain "DigitalMammographyXRayImageStorageForPresentation"

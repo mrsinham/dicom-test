@@ -35,8 +35,8 @@ func writeDatasetToFile(filename string, ds dicom.Dataset) error {
 	return dicom.Write(f, ds)
 }
 
-// drawTextOnFrame draws large text overlay on a uint16 frame
-func drawTextOnFrame(nativeFrame *frame.NativeFrame[uint16], width, height int, text string) {
+// drawTextOnFrame16 draws large text overlay on a uint16 frame
+func drawTextOnFrame16(nativeFrame *frame.NativeFrame[uint16], width, height int, text string) {
 	// Create an RGBA image for drawing (easier to draw text)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
@@ -152,6 +152,109 @@ func max(a, b int) int {
 	return b
 }
 
+// drawTextOnFrame8 draws large text overlay on a uint8 frame
+func drawTextOnFrame8(nativeFrame *frame.NativeFrame[uint8], width, height int, text string) {
+	// Create an RGBA image for drawing (easier to draw text)
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	// Copy pixel data to RGBA image
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			val := nativeFrame.RawData[y*width+x]
+			img.Set(x, y, color.RGBA{val, val, val, 255})
+		}
+	}
+
+	// Step 1: Render text at base size
+	face := basicfont.Face7x13
+	baseTextWidth := font.MeasureString(face, text).Ceil()
+	baseTextHeight := 13
+
+	// Create a small image for the base text
+	textImg := image.NewRGBA(image.Rect(0, 0, baseTextWidth, baseTextHeight))
+
+	// Draw text on the small image (white on transparent)
+	drawer := &font.Drawer{
+		Dst:  textImg,
+		Src:  image.NewUniform(color.RGBA{255, 255, 255, 255}),
+		Face: face,
+		Dot:  fixed.Point26_6{Y: fixed.I(13)}, // Baseline at height
+	}
+	drawer.DrawString(text)
+
+	// Step 2: Calculate scale factor to make text 30% of image width
+	targetWidth := int(float64(width) * 0.3)
+	scaleFactor := float64(targetWidth) / float64(baseTextWidth)
+
+	// Ensure minimum scale for readability
+	if scaleFactor < 2.0 {
+		scaleFactor = 2.0
+	}
+
+	scaledWidth := int(float64(baseTextWidth) * scaleFactor)
+	scaledHeight := int(float64(baseTextHeight) * scaleFactor)
+
+	// Step 3: Create scaled text image
+	scaledTextImg := image.NewRGBA(image.Rect(0, 0, scaledWidth, scaledHeight))
+
+	// Scale up the text using bilinear interpolation
+	draw.BiLinear.Scale(scaledTextImg, scaledTextImg.Bounds(), textImg, textImg.Bounds(), draw.Over, nil)
+
+	// Step 4: Position the text - centered horizontally and vertically
+	posX := (width - scaledWidth) / 2
+	posY := (height - scaledHeight) / 2
+
+	// Step 5: Draw thick black outline for visibility
+	outlineThickness := max(3, scaledHeight/10) // Proportional outline
+
+	for dx := -outlineThickness; dx <= outlineThickness; dx++ {
+		for dy := -outlineThickness; dy <= outlineThickness; dy++ {
+			if dx*dx+dy*dy <= outlineThickness*outlineThickness { // Circular outline
+				// Draw outline by copying with black color
+				for sy := 0; sy < scaledHeight; sy++ {
+					for sx := 0; sx < scaledWidth; sx++ {
+						_, _, _, a := scaledTextImg.At(sx, sy).RGBA()
+						if a > 0 { // If there's text here
+							destX := posX + sx + dx
+							destY := posY + sy + dy
+							if destX >= 0 && destX < width && destY >= 0 && destY < height {
+								// Draw black outline
+								img.Set(destX, destY, color.RGBA{0, 0, 0, 255})
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Step 6: Draw main text (white) on top
+	for sy := 0; sy < scaledHeight; sy++ {
+		for sx := 0; sx < scaledWidth; sx++ {
+			r, g, b, a := scaledTextImg.At(sx, sy).RGBA()
+			if a > 0 { // If there's text here
+				destX := posX + sx
+				destY := posY + sy
+				if destX >= 0 && destX < width && destY >= 0 && destY < height {
+					// Blend white text on top
+					brightness := (r + g + b) / 3 / 256 // 0-255 range
+					img.Set(destX, destY, color.RGBA{uint8(brightness), uint8(brightness), uint8(brightness), 255})
+				}
+			}
+		}
+	}
+
+	// Convert back to uint8 and update the frame
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			// Average RGB to grayscale
+			gray := (r + g + b) / 3 / 256 // Scale to 0-255
+			nativeFrame.RawData[y*width+x] = uint8(gray)
+		}
+	}
+}
+
 // GeneratorOptions contains all parameters needed to generate a DICOM series
 type GeneratorOptions struct {
 	NumImages   int
@@ -232,59 +335,94 @@ func generateImageFromTask(task imageTask) error {
 	pixelsPerFrame := width * height
 	cfg := task.pixelConfig
 
-	// Create frame
-	nativeFrame := frame.NewNativeFrame[uint16](16, height, width, pixelsPerFrame, 1)
-
 	// Create deterministic RNG for this specific image
 	rng := randv2.New(randv2.NewPCG(task.pixelSeed, task.pixelSeed))
-
-	// Fill with synthetic pattern based on modality
-	centerX, centerY := float64(width)/2, float64(height)/2
-	maxDist := math.Sqrt(centerX*centerX + centerY*centerY)
 
 	// Calculate value range based on pixel config
 	valueRange := float64(cfg.MaxValue - cfg.MinValue)
 	baseValue := float64(cfg.BaseValue)
+	centerX, centerY := float64(width)/2, float64(height)/2
+	maxDist := math.Sqrt(centerX*centerX + centerY*centerY)
 
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			dx := float64(x) - centerX
-			dy := float64(y) - centerY
-			dist := math.Sqrt(dx*dx + dy*dy)
+	// Generate pixel data based on BitsAllocated
+	var pixelDataInfo dicom.PixelDataInfo
 
-			// Base intensity decreases from center (simulates body cross-section)
-			normalizedDist := dist / maxDist
-			baseIntensity := baseValue + (1.0-normalizedDist)*valueRange*0.3
+	if cfg.BitsAllocated == 8 {
+		// 8-bit pixel data (e.g., Ultrasound)
+		nativeFrame := frame.NewNativeFrame[uint8](8, height, width, pixelsPerFrame, 1)
 
-			// Add noise proportional to value range
-			largeNoise := (rng.Float64() - 0.5) * valueRange * 0.3
-			mediumNoise := (rng.Float64() - 0.5) * valueRange * 0.15
-			fineNoise := (rng.Float64() - 0.5) * valueRange * 0.075
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				dx := float64(x) - centerX
+				dy := float64(y) - centerY
+				dist := math.Sqrt(dx*dx + dy*dy)
 
-			totalNoise := largeNoise + mediumNoise + fineNoise
-			intensity := baseIntensity + totalNoise
+				normalizedDist := dist / maxDist
+				baseIntensity := baseValue + (1.0-normalizedDist)*valueRange*0.3
 
-			// Clamp to valid range and convert to uint16
-			// For signed pixel representation (CT), we store as unsigned with offset
-			minVal := float64(0)
-			maxValInt := (1 << cfg.BitsStored) - 1
-			maxVal := float64(maxValInt)
-			clampedValue := math.Max(minVal, math.Min(maxVal, intensity))
-			nativeFrame.RawData[y*width+x] = uint16(clampedValue)
+				largeNoise := (rng.Float64() - 0.5) * valueRange * 0.3
+				mediumNoise := (rng.Float64() - 0.5) * valueRange * 0.15
+				fineNoise := (rng.Float64() - 0.5) * valueRange * 0.075
+
+				totalNoise := largeNoise + mediumNoise + fineNoise
+				intensity := baseIntensity + totalNoise
+
+				minVal := float64(0)
+				maxValInt := (1 << cfg.BitsStored) - 1
+				maxVal := float64(maxValInt)
+				clampedValue := math.Max(minVal, math.Min(maxVal, intensity))
+				nativeFrame.RawData[y*width+x] = uint8(clampedValue)
+			}
 		}
-	}
 
-	// Draw text overlay
-	drawTextOnFrame(nativeFrame, width, height, task.textOverlay)
+		drawTextOnFrame8(nativeFrame, width, height, task.textOverlay)
 
-	// Create pixel data info
-	pixelDataInfo := dicom.PixelDataInfo{
-		Frames: []*frame.Frame{
-			{
-				Encapsulated: false,
-				NativeData:   nativeFrame,
+		pixelDataInfo = dicom.PixelDataInfo{
+			Frames: []*frame.Frame{
+				{
+					Encapsulated: false,
+					NativeData:   nativeFrame,
+				},
 			},
-		},
+		}
+	} else {
+		// 16-bit pixel data (MR, CT, CR, DX, MG)
+		nativeFrame := frame.NewNativeFrame[uint16](16, height, width, pixelsPerFrame, 1)
+
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				dx := float64(x) - centerX
+				dy := float64(y) - centerY
+				dist := math.Sqrt(dx*dx + dy*dy)
+
+				normalizedDist := dist / maxDist
+				baseIntensity := baseValue + (1.0-normalizedDist)*valueRange*0.3
+
+				largeNoise := (rng.Float64() - 0.5) * valueRange * 0.3
+				mediumNoise := (rng.Float64() - 0.5) * valueRange * 0.15
+				fineNoise := (rng.Float64() - 0.5) * valueRange * 0.075
+
+				totalNoise := largeNoise + mediumNoise + fineNoise
+				intensity := baseIntensity + totalNoise
+
+				minVal := float64(0)
+				maxValInt := (1 << cfg.BitsStored) - 1
+				maxVal := float64(maxValInt)
+				clampedValue := math.Max(minVal, math.Min(maxVal, intensity))
+				nativeFrame.RawData[y*width+x] = uint16(clampedValue)
+			}
+		}
+
+		drawTextOnFrame16(nativeFrame, width, height, task.textOverlay)
+
+		pixelDataInfo = dicom.PixelDataInfo{
+			Frames: []*frame.Frame{
+				{
+					Encapsulated: false,
+					NativeData:   nativeFrame,
+				},
+			},
+		}
 	}
 
 	// Build complete metadata with pixel data
