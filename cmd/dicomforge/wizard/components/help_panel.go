@@ -49,14 +49,15 @@ func (h *HelpPanel) SetField(field string) {
 func (h *HelpPanel) SetSize(width, height int) {
 	h.width = width
 	h.height = height
-	helpPanelStyle = helpPanelStyle.Width(width - 4) // Account for border
 }
 
 // View renders the help panel
 func (h *HelpPanel) View() string {
+	style := helpPanelStyle.Width(h.width - 4) // Compute locally, don't mutate global
+
 	text, ok := help.Texts[h.currentField]
 	if !ok {
-		return helpPanelStyle.Render("Select a field to see help")
+		return style.Render("Select a field to see help")
 	}
 
 	var sb strings.Builder
@@ -67,5 +68,5 @@ func (h *HelpPanel) View() string {
 	sb.WriteString("\n\n")
 	sb.WriteString(helpDetailStyle.Render(text.Details))
 
-	return helpPanelStyle.Render(sb.String())
+	return style.Render(sb.String())
 }
