@@ -268,6 +268,9 @@ type GeneratorOptions struct {
 	// Modality selection
 	Modality modalities.Modality // Imaging modality (MR, CT, etc.)
 
+	// Multi-series support
+	SeriesPerStudy util.SeriesRange // Number of series per study (default: 1)
+
 	// Categorization options
 	Institution    string        // Fixed institution name (empty = random)
 	Department     string        // Fixed department name (empty = random)
@@ -300,15 +303,17 @@ type patientInfo struct {
 
 // imageTask contains all data needed to generate a single DICOM image
 type imageTask struct {
-	globalIndex     int
-	instanceInStudy int
-	width           int
-	height          int
-	filePath        string
-	textOverlay     string
-	pixelSeed       uint64 // Deterministic seed for this image's pixel generation
-	metadata        []*dicom.Element
-	pixelConfig     modalities.PixelConfig // Modality-specific pixel configuration
+	globalIndex      int
+	instanceInStudy  int
+	instanceInSeries int
+	seriesNumber     int
+	width            int
+	height           int
+	filePath         string
+	textOverlay      string
+	pixelSeed        uint64 // Deterministic seed for this image's pixel generation
+	metadata         []*dicom.Element
+	pixelConfig      modalities.PixelConfig // Modality-specific pixel configuration
 	// Result info
 	studyUID       string
 	seriesUID      string
@@ -319,14 +324,15 @@ type imageTask struct {
 
 // GeneratedFile contains information about a generated DICOM file
 type GeneratedFile struct {
-	Path           string
-	StudyUID       string
-	SeriesUID      string
-	SOPInstanceUID string
-	PatientID      string
-	StudyID        string
-	SeriesNumber   int
-	InstanceNumber int
+	Path             string
+	StudyUID         string
+	SeriesUID        string
+	SOPInstanceUID   string
+	PatientID        string
+	StudyID          string
+	SeriesNumber     int
+	InstanceNumber   int // Instance number in series
+	InstanceInStudy  int // Instance number in study (for backwards compatibility)
 }
 
 // generateImageFromTask generates a single DICOM image from a pre-computed task
@@ -645,6 +651,15 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	}
 	fmt.Printf("Number of studies: %d\n", opts.NumStudies)
 
+	// Determine series per study range (default to 1 series if not specified)
+	seriesPerStudy := opts.SeriesPerStudy
+	if seriesPerStudy.Max == 0 {
+		seriesPerStudy = util.SeriesRange{Min: 1, Max: 1}
+	}
+	if seriesPerStudy.IsMultiSeries() {
+		fmt.Printf("Series per study: %s\n", seriesPerStudy.String())
+	}
+
 	// Calculate images per study
 	imagesPerStudy := opts.NumImages / opts.NumStudies
 	remainingImages := opts.NumImages % opts.NumStudies
@@ -664,7 +679,8 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 		// Generate deterministic UIDs for this study
 		studyUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d", opts.OutputDir, studyNum))
-		seriesUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d_series_1", opts.OutputDir, studyNum))
+		// Frame of reference UID shared across all series in this study
+		frameOfReferenceUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d_frame", opts.OutputDir, studyNum))
 
 		// Generate study-specific info
 		studyID := fmt.Sprintf("STD%04d", rng.IntN(9000)+1000)
@@ -690,20 +706,11 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		// Select scanner for this study
 		scanner := scanners[rng.IntN(len(scanners))]
 
-		// Generate modality-specific series parameters
-		seriesParams := modalityGen.GenerateSeriesParams(scanner, rng)
-
 		// Calculate images for this study
 		numImagesThisStudy := imagesPerStudy
 		if studyNum <= remainingImages {
 			numImagesThisStudy++
 		}
-
-		fmt.Printf("\nStudy %d/%d: %d images (Patient: %s)\n", studyNum, opts.NumStudies, numImagesThisStudy, patient.Name)
-		fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
-		fmt.Printf("  Modality: %s, Scanner: %s %s\n", modalityStr, scanner.Manufacturer, scanner.Model)
-		fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
-			seriesParams.PixelSpacing, seriesParams.SliceThickness)
 
 		// Categorization metadata for this study
 		var studyInstitution util.Institution
@@ -744,119 +751,202 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		// Generate series-level tags with custom overrides
 		protocolName := util.GenerateProtocolName(modalityStr, bodyPart, rng)
 		clinicalIndication := util.GenerateClinicalIndication(modalityStr, bodyPart, rng)
-		generatedSeriesDescription := fmt.Sprintf("Series 1 - %s", modalityStr)
 
 		// Apply custom tag overrides for series-level tags
 		protocolName = getTagValue(opts.CustomTags, "ProtocolName", protocolName)
 		bodyPartExamined := getTagValue(opts.CustomTags, "BodyPartExamined", bodyPart)
 		requestedProcedureDescription := getTagValue(opts.CustomTags, "RequestedProcedureDescription", clinicalIndication)
-		seriesDescription := getTagValue(opts.CustomTags, "SeriesDescription", generatedSeriesDescription)
 
-		// Build tasks for each image in this study
-		for instanceInStudy := 1; instanceInStudy <= numImagesThisStudy; instanceInStudy++ {
-			sopInstanceUID := util.GenerateDeterministicUID(
-				fmt.Sprintf("%s_study_%d_instance_%d", opts.OutputDir, studyNum, instanceInStudy))
+		// Determine number of series for this study
+		numSeriesThisStudy := seriesPerStudy.GetSeriesCount(rng)
 
-			imageOrientationPatient := []string{"1", "0", "0", "0", "1", "0"}
+		// Get series templates for this modality
+		seriesTemplates := modalities.GetSeriesTemplates(opts.Modality, bodyPart, numSeriesThisStudy, rng)
+		numSeriesThisStudy = len(seriesTemplates) // May be limited by available templates
 
-			sliceIndex := float64(instanceInStudy - 1)
-			imagePositionX := -100.0
-			imagePositionY := -100.0
-			imagePositionZ := -100.0 + (sliceIndex * seriesParams.SpacingBetweenSlices)
-			imagePositionPatient := []string{
-				fmt.Sprintf("%.6f", imagePositionX),
-				fmt.Sprintf("%.6f", imagePositionY),
-				fmt.Sprintf("%.6f", imagePositionZ),
-			}
-			sliceLocation := imagePositionZ
+		// Ensure at least 1 series
+		if numSeriesThisStudy < 1 {
+			numSeriesThisStudy = 1
+		}
 
-			// Build metadata (without pixel data)
-			metadata := []*dicom.Element{
-				mustNewElement(tag.TransferSyntaxUID, []string{"1.2.840.10008.1.2.1"}),
-				mustNewElement(tag.PatientName, []string{patient.Name}),
-				mustNewElement(tag.PatientID, []string{patient.ID}),
-				mustNewElement(tag.PatientBirthDate, []string{patient.BirthDate}),
-				mustNewElement(tag.PatientSex, []string{patient.Sex}),
-				mustNewElement(tag.StudyInstanceUID, []string{studyUID}),
-				mustNewElement(tag.StudyID, []string{studyID}),
-				mustNewElement(tag.StudyDate, []string{studyDate}),
-				mustNewElement(tag.StudyTime, []string{studyTime}),
-				mustNewElement(tag.StudyDescription, []string{studyDescription}),
-				mustNewElement(tag.SeriesInstanceUID, []string{seriesUID}),
-				mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", 1)}),
-				mustNewElement(tag.SeriesDescription, []string{seriesDescription}),
-				mustNewElement(tag.Modality, []string{modalityStr}),
-				mustNewElement(tag.SOPInstanceUID, []string{sopInstanceUID}),
-				mustNewElement(tag.SOPClassUID, []string{modalityGen.SOPClassUID()}),
-				mustNewElement(tag.InstanceNumber, []string{fmt.Sprintf("%d", instanceInStudy)}),
-				mustNewElement(tag.PixelSpacing, []string{
-					fmt.Sprintf("%.6f", seriesParams.PixelSpacing),
-					fmt.Sprintf("%.6f", seriesParams.PixelSpacing),
-				}),
-				mustNewElement(tag.SliceThickness, []string{fmt.Sprintf("%.6f", seriesParams.SliceThickness)}),
-				mustNewElement(tag.SpacingBetweenSlices, []string{fmt.Sprintf("%.6f", seriesParams.SpacingBetweenSlices)}),
-				mustNewElement(tag.Manufacturer, []string{scanner.Manufacturer}),
-				mustNewElement(tag.ManufacturerModelName, []string{scanner.Model}),
-				mustNewElement(tag.WindowCenter, []string{fmt.Sprintf("%.1f", seriesParams.WindowCenter)}),
-				mustNewElement(tag.WindowWidth, []string{fmt.Sprintf("%.1f", seriesParams.WindowWidth)}),
-				mustNewElement(tag.ImagePositionPatient, imagePositionPatient),
-				mustNewElement(tag.ImageOrientationPatient, imageOrientationPatient),
-				mustNewElement(tag.SliceLocation, []string{fmt.Sprintf("%.6f", sliceLocation)}),
-				mustNewElement(tag.Rows, []int{height}),
-				mustNewElement(tag.Columns, []int{width}),
-				mustNewElement(tag.BitsAllocated, []int{int(pixelConfig.BitsAllocated)}),
-				mustNewElement(tag.BitsStored, []int{int(pixelConfig.BitsStored)}),
-				mustNewElement(tag.HighBit, []int{int(pixelConfig.HighBit)}),
-				mustNewElement(tag.PixelRepresentation, []int{int(pixelConfig.PixelRepresentation)}),
-				mustNewElement(tag.SamplesPerPixel, []int{1}),
-				mustNewElement(tag.PhotometricInterpretation, []string{"MONOCHROME2"}),
-				// Categorization tags (with custom tag overrides applied)
-				mustNewElement(tag.InstitutionName, []string{institutionName}),
-				mustNewElement(tag.InstitutionalDepartmentName, []string{institutionalDepartmentName}),
-				mustNewElement(tag.StationName, []string{stationName}),
-				mustNewElement(tag.ReferringPhysicianName, []string{referringPhysician}),
-				mustNewElement(tag.PerformingPhysicianName, []string{performingPhysician}),
-				mustNewElement(tag.OperatorsName, []string{operatorName}),
-				mustNewElement(tag.BodyPartExamined, []string{bodyPartExamined}),
-				mustNewElement(tag.ProtocolName, []string{protocolName}),
-				mustNewElement(tag.RequestedProcedureDescription, []string{requestedProcedureDescription}),
-				mustNewElement(tag.RequestedProcedurePriority, []string{requestedProcedurePriority}),
-				mustNewElement(tag.AccessionNumber, []string{accessionNumber}),
+		fmt.Printf("\nStudy %d/%d: %d images in %d series (Patient: %s)\n", studyNum, opts.NumStudies, numImagesThisStudy, numSeriesThisStudy, patient.Name)
+		fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
+		fmt.Printf("  Modality: %s, Scanner: %s %s\n", modalityStr, scanner.Manufacturer, scanner.Model)
+
+		// Distribute images across series
+		imagesPerSeries := numImagesThisStudy / numSeriesThisStudy
+		remainingSeriesImages := numImagesThisStudy % numSeriesThisStudy
+
+		instanceInStudy := 1
+
+		// Generate images for each series
+		for seriesNum := 1; seriesNum <= numSeriesThisStudy; seriesNum++ {
+			// Generate deterministic series UID
+			seriesUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d_series_%d", opts.OutputDir, studyNum, seriesNum))
+
+			// Get series template (if available)
+			var seriesTemplate modalities.SeriesTemplate
+			if seriesNum <= len(seriesTemplates) {
+				seriesTemplate = seriesTemplates[seriesNum-1]
+			} else {
+				// Fallback template
+				seriesTemplate = modalities.SeriesTemplate{
+					SeriesDescription: fmt.Sprintf("Series %d", seriesNum),
+					Orientation:       modalities.OrientationAxial,
+				}
 			}
 
-			// Add modality-specific elements
-			ds := &dicom.Dataset{Elements: metadata}
-			if err := modalityGen.AppendModalityElements(ds, seriesParams); err != nil {
-				return nil, fmt.Errorf("add modality elements for study %d, instance %d: %w", studyNum, instanceInStudy, err)
+			// Generate modality-specific series parameters
+			seriesParams := modalityGen.GenerateSeriesParams(scanner, rng)
+
+			// Apply series template window settings if specified
+			if seriesTemplate.WindowCenter != 0 {
+				seriesParams.WindowCenter = seriesTemplate.WindowCenter
 			}
-			metadata = ds.Elements
+			if seriesTemplate.WindowWidth != 0 {
+				seriesParams.WindowWidth = seriesTemplate.WindowWidth
+			}
 
-			// Generate deterministic pixel seed for this specific image
-			pixelSeedHash := fnv.New64a()
-			_, _ = pixelSeedHash.Write([]byte(fmt.Sprintf("%d_pixel_%d", seed, globalImageIndex)))
-			pixelSeed := pixelSeedHash.Sum64()
+			// Calculate images for this series
+			numImagesThisSeries := imagesPerSeries
+			if seriesNum <= remainingSeriesImages {
+				numImagesThisSeries++
+			}
 
-			filename := fmt.Sprintf("IMG%04d.dcm", globalImageIndex)
-			filePath := filepath.Join(opts.OutputDir, filename)
+			// Generate series description
+			generatedSeriesDescription := seriesTemplate.SeriesDescription
+			if generatedSeriesDescription == "" {
+				generatedSeriesDescription = fmt.Sprintf("Series %d - %s", seriesNum, modalityStr)
+			}
+			seriesDescription := getTagValue(opts.CustomTags, "SeriesDescription", generatedSeriesDescription)
 
-			tasks = append(tasks, imageTask{
-				globalIndex:     globalImageIndex,
-				instanceInStudy: instanceInStudy,
-				width:           width,
-				height:          height,
-				filePath:        filePath,
-				textOverlay:     fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages),
-				pixelSeed:       pixelSeed,
-				metadata:        metadata,
-				pixelConfig:     pixelConfig,
-				studyUID:        studyUID,
-				seriesUID:       seriesUID,
-				sopInstanceUID:  sopInstanceUID,
-				patientID:       patient.ID,
-				studyID:         studyID,
-			})
+			// Get image orientation from template
+			imageOrientationValues := seriesTemplate.ImageOrientationPatient()
+			imageOrientationPatient := make([]string, 6)
+			for i, v := range imageOrientationValues {
+				imageOrientationPatient[i] = fmt.Sprintf("%.6f", v)
+			}
 
-			globalImageIndex++
+			fmt.Printf("  Series %d: %s (%d images, %s)\n", seriesNum, seriesDescription, numImagesThisSeries, seriesTemplate.Orientation)
+
+			// Build tasks for each image in this series
+			for instanceInSeries := 1; instanceInSeries <= numImagesThisSeries; instanceInSeries++ {
+				sopInstanceUID := util.GenerateDeterministicUID(
+					fmt.Sprintf("%s_study_%d_series_%d_instance_%d", opts.OutputDir, studyNum, seriesNum, instanceInSeries))
+
+				sliceIndex := float64(instanceInSeries - 1)
+				imagePositionX := -100.0
+				imagePositionY := -100.0
+				imagePositionZ := -100.0 + (sliceIndex * seriesParams.SpacingBetweenSlices)
+				imagePositionPatient := []string{
+					fmt.Sprintf("%.6f", imagePositionX),
+					fmt.Sprintf("%.6f", imagePositionY),
+					fmt.Sprintf("%.6f", imagePositionZ),
+				}
+				sliceLocation := imagePositionZ
+
+				// Build metadata (without pixel data)
+				metadata := []*dicom.Element{
+					mustNewElement(tag.TransferSyntaxUID, []string{"1.2.840.10008.1.2.1"}),
+					mustNewElement(tag.PatientName, []string{patient.Name}),
+					mustNewElement(tag.PatientID, []string{patient.ID}),
+					mustNewElement(tag.PatientBirthDate, []string{patient.BirthDate}),
+					mustNewElement(tag.PatientSex, []string{patient.Sex}),
+					mustNewElement(tag.StudyInstanceUID, []string{studyUID}),
+					mustNewElement(tag.StudyID, []string{studyID}),
+					mustNewElement(tag.StudyDate, []string{studyDate}),
+					mustNewElement(tag.StudyTime, []string{studyTime}),
+					mustNewElement(tag.StudyDescription, []string{studyDescription}),
+					mustNewElement(tag.SeriesInstanceUID, []string{seriesUID}),
+					mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", seriesNum)}),
+					mustNewElement(tag.SeriesDescription, []string{seriesDescription}),
+					mustNewElement(tag.Modality, []string{modalityStr}),
+					mustNewElement(tag.SOPInstanceUID, []string{sopInstanceUID}),
+					mustNewElement(tag.SOPClassUID, []string{modalityGen.SOPClassUID()}),
+					mustNewElement(tag.InstanceNumber, []string{fmt.Sprintf("%d", instanceInSeries)}),
+					mustNewElement(tag.PixelSpacing, []string{
+						fmt.Sprintf("%.6f", seriesParams.PixelSpacing),
+						fmt.Sprintf("%.6f", seriesParams.PixelSpacing),
+					}),
+					mustNewElement(tag.SliceThickness, []string{fmt.Sprintf("%.6f", seriesParams.SliceThickness)}),
+					mustNewElement(tag.SpacingBetweenSlices, []string{fmt.Sprintf("%.6f", seriesParams.SpacingBetweenSlices)}),
+					mustNewElement(tag.Manufacturer, []string{scanner.Manufacturer}),
+					mustNewElement(tag.ManufacturerModelName, []string{scanner.Model}),
+					mustNewElement(tag.WindowCenter, []string{fmt.Sprintf("%.1f", seriesParams.WindowCenter)}),
+					mustNewElement(tag.WindowWidth, []string{fmt.Sprintf("%.1f", seriesParams.WindowWidth)}),
+					mustNewElement(tag.ImagePositionPatient, imagePositionPatient),
+					mustNewElement(tag.ImageOrientationPatient, imageOrientationPatient),
+					mustNewElement(tag.SliceLocation, []string{fmt.Sprintf("%.6f", sliceLocation)}),
+					mustNewElement(tag.FrameOfReferenceUID, []string{frameOfReferenceUID}),
+					mustNewElement(tag.Rows, []int{height}),
+					mustNewElement(tag.Columns, []int{width}),
+					mustNewElement(tag.BitsAllocated, []int{int(pixelConfig.BitsAllocated)}),
+					mustNewElement(tag.BitsStored, []int{int(pixelConfig.BitsStored)}),
+					mustNewElement(tag.HighBit, []int{int(pixelConfig.HighBit)}),
+					mustNewElement(tag.PixelRepresentation, []int{int(pixelConfig.PixelRepresentation)}),
+					mustNewElement(tag.SamplesPerPixel, []int{1}),
+					mustNewElement(tag.PhotometricInterpretation, []string{"MONOCHROME2"}),
+					// Categorization tags (with custom tag overrides applied)
+					mustNewElement(tag.InstitutionName, []string{institutionName}),
+					mustNewElement(tag.InstitutionalDepartmentName, []string{institutionalDepartmentName}),
+					mustNewElement(tag.StationName, []string{stationName}),
+					mustNewElement(tag.ReferringPhysicianName, []string{referringPhysician}),
+					mustNewElement(tag.PerformingPhysicianName, []string{performingPhysician}),
+					mustNewElement(tag.OperatorsName, []string{operatorName}),
+					mustNewElement(tag.BodyPartExamined, []string{bodyPartExamined}),
+					mustNewElement(tag.ProtocolName, []string{protocolName}),
+					mustNewElement(tag.RequestedProcedureDescription, []string{requestedProcedureDescription}),
+					mustNewElement(tag.RequestedProcedurePriority, []string{requestedProcedurePriority}),
+					mustNewElement(tag.AccessionNumber, []string{accessionNumber}),
+				}
+
+				// Add contrast agent info if this series uses contrast
+				if seriesTemplate.HasContrast && seriesTemplate.ContrastAgent != "" {
+					metadata = append(metadata, mustNewElement(tag.ContrastBolusAgent, []string{seriesTemplate.ContrastAgent}))
+				}
+
+				// Add sequence name for MR
+				if seriesTemplate.SequenceName != "" {
+					metadata = append(metadata, mustNewElement(tag.SequenceName, []string{seriesTemplate.SequenceName}))
+				}
+
+				// Add modality-specific elements
+				ds := &dicom.Dataset{Elements: metadata}
+				if err := modalityGen.AppendModalityElements(ds, seriesParams); err != nil {
+					return nil, fmt.Errorf("add modality elements for study %d, series %d, instance %d: %w", studyNum, seriesNum, instanceInSeries, err)
+				}
+				metadata = ds.Elements
+
+				// Generate deterministic pixel seed for this specific image
+				pixelSeedHash := fnv.New64a()
+				_, _ = pixelSeedHash.Write([]byte(fmt.Sprintf("%d_pixel_%d", seed, globalImageIndex)))
+				pixelSeed := pixelSeedHash.Sum64()
+
+				filename := fmt.Sprintf("IMG%04d.dcm", globalImageIndex)
+				filePath := filepath.Join(opts.OutputDir, filename)
+
+				tasks = append(tasks, imageTask{
+					globalIndex:      globalImageIndex,
+					instanceInStudy:  instanceInStudy,
+					instanceInSeries: instanceInSeries,
+					seriesNumber:     seriesNum,
+					width:            width,
+					height:           height,
+					filePath:         filePath,
+					textOverlay:      fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages),
+					pixelSeed:        pixelSeed,
+					metadata:         metadata,
+					pixelConfig:      pixelConfig,
+					studyUID:         studyUID,
+					seriesUID:        seriesUID,
+					sopInstanceUID:   sopInstanceUID,
+					patientID:        patient.ID,
+					studyID:          studyID,
+				})
+
+				globalImageIndex++
+				instanceInStudy++
+			}
 		}
 	}
 
@@ -929,14 +1019,15 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	generatedFiles := make([]GeneratedFile, len(tasks))
 	for i, task := range tasks {
 		generatedFiles[i] = GeneratedFile{
-			Path:           task.filePath,
-			StudyUID:       task.studyUID,
-			SeriesUID:      task.seriesUID,
-			SOPInstanceUID: task.sopInstanceUID,
-			PatientID:      task.patientID,
-			StudyID:        task.studyID,
-			SeriesNumber:   1,
-			InstanceNumber: task.instanceInStudy,
+			Path:            task.filePath,
+			StudyUID:        task.studyUID,
+			SeriesUID:       task.seriesUID,
+			SOPInstanceUID:  task.sopInstanceUID,
+			PatientID:       task.patientID,
+			StudyID:         task.studyID,
+			SeriesNumber:    task.seriesNumber,
+			InstanceNumber:  task.instanceInSeries,
+			InstanceInStudy: task.instanceInStudy,
 		}
 	}
 

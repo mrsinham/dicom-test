@@ -29,6 +29,9 @@ func main() {
 	// Modality selection
 	modality := flag.String("modality", "MR", "Imaging modality: MR, CT, CR, DX, US, MG (default: MR)")
 
+	// Multi-series support
+	seriesPerStudy := flag.String("series-per-study", "1", "Number of series per study (e.g., '3' or '2-5' for random range)")
+
 	// Categorization options
 	institution := flag.String("institution", "", "Institution name (random if not specified)")
 	department := flag.String("department", "", "Department name (random if not specified)")
@@ -114,6 +117,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Parse series per study
+	parsedSeriesPerStudy, err := util.ParseSeriesRange(*seriesPerStudy)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Parse and validate custom tags
 	parsedTags, err := util.ParseTagFlags(tagFlags)
 	if err != nil {
@@ -155,6 +165,7 @@ func main() {
 		NumPatients:    *numPatients,
 		Workers:        *workers,
 		Modality:       modalities.Modality(modalityUpper),
+		SeriesPerStudy: parsedSeriesPerStudy,
 		Institution:    *institution,
 		Department:     *department,
 		BodyPart:       *bodyPart,
@@ -211,6 +222,8 @@ func printHelp() {
 	fmt.Println("  --modality <MOD>      Imaging modality: MR, CT, CR, DX, US, MG (default: MR)")
 	fmt.Println("  --num-studies <N>     Number of studies to generate (default: 1)")
 	fmt.Println("  --num-patients <N>    Number of patients (default: 1, studies distributed among patients)")
+	fmt.Println("  --series-per-study <N|MIN-MAX>")
+	fmt.Println("                        Series per study: '3' for fixed, '2-5' for random range (default: 1)")
 	fmt.Printf("  --workers <N>         Number of parallel workers (default: %d = CPU cores)\n", runtime.NumCPU())
 	fmt.Println()
 	fmt.Println("Categorization options:")
@@ -258,6 +271,12 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("  # Generate with 4 parallel workers (for limited resources)")
 	fmt.Println("  dicomforge --num-images 100 --total-size 1GB --workers 4")
+	fmt.Println()
+	fmt.Println("  # Generate MR brain study with 3-5 series (T1, T2, FLAIR, etc.)")
+	fmt.Println("  dicomforge --num-images 100 --total-size 200MB --modality MR --body-part HEAD --series-per-study 3-5")
+	fmt.Println()
+	fmt.Println("  # Generate CT with 3 series (contrast phases)")
+	fmt.Println("  dicomforge --num-images 300 --total-size 500MB --modality CT --series-per-study 3")
 	fmt.Println()
 	fmt.Println("Output:")
 	fmt.Println("  The program creates a DICOM series with:")

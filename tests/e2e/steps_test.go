@@ -110,6 +110,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^DICOM tag "([^"]*)" in "([^"]*)" should match across all files$`, tc.dicomTagShouldMatch)
 	sc.Step(`^"([^"]*)" should contain (\d+) study directories$`, tc.shouldContainStudyDirs)
 	sc.Step(`^"([^"]*)" should contain (\d+) patient directories$`, tc.shouldContainPatientDirs)
+	sc.Step(`^"([^"]*)" should contain (\d+) series directories$`, tc.shouldContainSeriesDirs)
 }
 
 func (tc *testContext) dicomforgeIsBuilt() error {
@@ -349,6 +350,26 @@ func (tc *testContext) shouldContainPatientDirs(path string, count int) error {
 	ptDirs, _ := filepath.Glob(filepath.Join(path, "PT*"))
 	if len(ptDirs) != count {
 		return fmt.Errorf("expected %d patient directories, found %d", count, len(ptDirs))
+	}
+	return nil
+}
+
+func (tc *testContext) shouldContainSeriesDirs(path string, count int) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	// Count all SE* directories across all patients and studies
+	var seriesCount int
+	ptDirs, _ := filepath.Glob(filepath.Join(path, "PT*"))
+	for _, ptDir := range ptDirs {
+		stDirs, _ := filepath.Glob(filepath.Join(ptDir, "ST*"))
+		for _, stDir := range stDirs {
+			seDirs, _ := filepath.Glob(filepath.Join(stDir, "SE*"))
+			seriesCount += len(seDirs)
+		}
+	}
+
+	if seriesCount != count {
+		return fmt.Errorf("expected %d series directories, found %d", count, seriesCount)
 	}
 	return nil
 }
