@@ -197,7 +197,7 @@ type PatientConfigYAML struct {
 type StudyConfigYAML struct {
 	Description        string             `yaml:"description"`
 	Date               string             `yaml:"date"`
-	AccessionNumber    string             `yaml:"accession_number"`
+	AccessionNumber    string             `yaml:"accession"`
 	Institution        string             `yaml:"institution"`
 	Department         string             `yaml:"department"`
 	BodyPart           string             `yaml:"body_part"`
@@ -212,6 +212,6 @@ type SeriesConfigYAML struct {
 	Description string            `yaml:"description"`
 	Protocol    string            `yaml:"protocol"`
 	Orientation string            `yaml:"orientation"`
-	ImageCount  int               `yaml:"image_count"`
+	ImageCount  int               `yaml:"images"`
 	CustomTags  map[string]string `yaml:"custom_tags,omitempty"`
 }

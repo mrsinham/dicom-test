@@ -104,8 +104,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Silence unused variable warning for saveConfig (used in future task)
-	_ = saveConfig
+	if *saveConfig != "" {
+		fmt.Fprintf(os.Stderr, "Warning: --save-config is not yet implemented\n")
+	}
 
 	// Show version
 	if *showVersion {
