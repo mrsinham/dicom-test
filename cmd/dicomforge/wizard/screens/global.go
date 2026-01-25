@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/components"
+	"github.com/mrsinham/dicomforge/internal/util"
 )
 
 // GlobalScreen is the first wizard screen for global configuration
@@ -94,7 +95,13 @@ func NewGlobalScreen(config *wizard.GlobalConfig) *GlobalScreen {
 			huh.NewInput().
 				Key("output").
 				Title("Output Directory").
-				Value(&config.OutputDir),
+				Value(&config.OutputDir).
+				Validate(func(s string) error {
+					if s == "" {
+						return fmt.Errorf("output directory is required")
+					}
+					return nil
+				}),
 		),
 		huh.NewGroup(
 			huh.NewInput().
@@ -135,9 +142,8 @@ func validateSize(s string) error {
 	if s == "" {
 		return fmt.Errorf("size is required")
 	}
-	// Basic validation - check format like "100MB" or "1GB"
-	// More thorough validation happens in generator
-	return nil
+	_, err := util.ParseSize(s)
+	return err
 }
 
 // Init implements tea.Model
