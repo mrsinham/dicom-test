@@ -241,3 +241,47 @@ Feature: DICOM Generation
     When I run dicomforge with "--num-images 2 --total-size 200KB --modality MG --output {tmpdir}"
     Then the exit code should be 0
     And DICOM tag "SOPClassUID" in "{tmpdir}" should contain "DigitalMammographyXRayImageStorageForPresentation"
+
+  # Multi-series studies
+  Scenario: Generate study with multiple series
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 6 --total-size 400KB --series-per-study 3 --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 6 DICOM files
+    And "{tmpdir}" should contain 3 series directories
+    And dcmdump should successfully parse all files in "{tmpdir}"
+
+  Scenario: Generate study with series range
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 8 --total-size 500KB --series-per-study 2-4 --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 8 DICOM files
+    And dcmdump should successfully parse all files in "{tmpdir}"
+
+  Scenario: Generate MR brain with multiple series
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 12 --total-size 600KB --modality MR --body-part HEAD --series-per-study 3 --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 12 DICOM files
+    And "{tmpdir}" should contain 3 series directories
+    And DICOM tag "Modality" in "{tmpdir}" should contain "MR"
+
+  Scenario: Generate CT with multiple contrast phases
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 9 --total-size 500KB --modality CT --series-per-study 3 --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 9 DICOM files
+    And "{tmpdir}" should contain 3 series directories
+    And DICOM tag "Modality" in "{tmpdir}" should contain "CT"
+
+  Scenario: Series share same FrameOfReferenceUID
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 6 --total-size 400KB --series-per-study 2 --seed 42 --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "FrameOfReferenceUID" in "{tmpdir}" should match across all files
+
+  Scenario: Invalid series range
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 6 --total-size 400KB --series-per-study 5-2 --output {tmpdir}"
+    Then the exit code should be 1
+    And the output should contain "max"
