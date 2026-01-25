@@ -11,11 +11,11 @@ type GlobalConfigYAML struct {
 	Modality          string `yaml:"modality"`
 	TotalImages       int    `yaml:"total_images"`
 	TotalSize         string `yaml:"total_size"`
-	OutputDir         string `yaml:"output_dir"`
-	Seed              int64  `yaml:"seed"`
-	NumPatients       int    `yaml:"num_patients"`
-	StudiesPerPatient int    `yaml:"studies_per_patient"`
-	SeriesPerStudy    int    `yaml:"series_per_study"`
+	OutputDir         string `yaml:"output"`
+	Seed              int64  `yaml:"seed,omitempty"`
+	NumPatients       int    `yaml:"num_patients,omitempty"`
+	StudiesPerPatient int    `yaml:"studies_per_patient,omitempty"`
+	SeriesPerStudy    int    `yaml:"series_per_study,omitempty"`
 }
 
 // PatientConfigYAML holds patient configuration with YAML tags.
