@@ -210,12 +210,7 @@ func (s *GlobalScreen) View() string {
 		return "Cancelled.\n"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("63")).
-		MarginBottom(1)
-
-	title := titleStyle.Render("DICOMFORGE WIZARD - Global Configuration")
+	title := components.TitleStyle.Render("DICOMFORGE WIZARD - Global Configuration")
 
 	// Layout: form on left, help panel on right
 	formView := s.form.View()

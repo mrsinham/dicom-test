@@ -170,12 +170,7 @@ func (s *PatientScreen) View() string {
 		return "Cancelled.\n"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("63")).
-		MarginBottom(1)
-
-	title := titleStyle.Render(fmt.Sprintf("PATIENT %d/%d", s.patientIndex+1, s.totalPatients))
+	title := components.TitleStyle.Render(fmt.Sprintf("PATIENT %d/%d", s.patientIndex+1, s.totalPatients))
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -283,12 +278,7 @@ func (s *BulkPatientScreen) View() string {
 		return "Cancelled.\n"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("63")).
-		MarginBottom(1)
-
-	title := titleStyle.Render("REMAINING PATIENTS")
+	title := components.TitleStyle.Render("REMAINING PATIENTS")
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title,

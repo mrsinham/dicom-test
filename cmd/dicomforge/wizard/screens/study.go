@@ -2,7 +2,7 @@ package screens
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,6 +10,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/components"
+)
+
+const (
+	choiceGenerate  = "generate"
+	choiceConfigure = "configure"
 )
 
 // StudyScreen configures a single study
@@ -196,7 +201,7 @@ func generateDefaultStudyDescription(modality, bodyPart string) string {
 }
 
 func generateAccessionNumber() string {
-	return fmt.Sprintf("ACC-%06d", rand.Intn(1000000))
+	return fmt.Sprintf("ACC-%06d", rand.IntN(1000000))
 }
 
 func validateStudyDate(s string) error {
@@ -253,17 +258,8 @@ func (s *StudyScreen) View() string {
 		return "Cancelled.\n"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("63")).
-		MarginBottom(1)
-
-	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("244")).
-		MarginBottom(1)
-
-	title := titleStyle.Render(fmt.Sprintf("STUDY %d/%d", s.studyIndex+1, s.totalStudies))
-	subtitle := subtitleStyle.Render(fmt.Sprintf("Patient: %s", s.patientName))
+	title := components.TitleStyle.Render(fmt.Sprintf("STUDY %d/%d", s.studyIndex+1, s.totalStudies))
+	subtitle := components.SubtitleStyle.Render(fmt.Sprintf("Patient: %s", s.patientName))
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -315,7 +311,7 @@ type BulkStudyScreen struct {
 // NewBulkStudyScreen creates a new bulk study choice screen
 func NewBulkStudyScreen(remainingCount int, patientName string) *BulkStudyScreen {
 	s := &BulkStudyScreen{
-		choice:      "generate",
+		choice:      choiceGenerate,
 		patientName: patientName,
 	}
 
@@ -329,8 +325,8 @@ func NewBulkStudyScreen(remainingCount int, patientName string) *BulkStudyScreen
 				Key("bulk_study_choice").
 				Title("What would you like to do?").
 				Options(
-					huh.NewOption("Generate automatically (default values)", "generate"),
-					huh.NewOption("Configure each one individually", "configure"),
+					huh.NewOption("Generate automatically (default values)", choiceGenerate),
+					huh.NewOption("Configure each one individually", choiceConfigure),
 				).
 				Value(&s.choice),
 		),
@@ -376,17 +372,8 @@ func (s *BulkStudyScreen) View() string {
 		return "Cancelled.\n"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("63")).
-		MarginBottom(1)
-
-	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("244")).
-		MarginBottom(1)
-
-	title := titleStyle.Render("REMAINING STUDIES")
-	subtitle := subtitleStyle.Render(fmt.Sprintf("Patient: %s", s.patientName))
+	title := components.TitleStyle.Render("REMAINING STUDIES")
+	subtitle := components.SubtitleStyle.Render(fmt.Sprintf("Patient: %s", s.patientName))
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -408,7 +395,7 @@ func (s *BulkStudyScreen) Cancelled() bool { return s.cancelled }
 
 // Choice returns the selected bulk choice
 func (s *BulkStudyScreen) Choice() BulkStudyChoice {
-	if s.choice == "configure" {
+	if s.choice == choiceConfigure {
 		return BulkStudyConfigure
 	}
 	return BulkStudyGenerate
