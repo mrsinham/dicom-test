@@ -15,7 +15,7 @@
         packages = {
           default = pkgs.buildGoModule {
             pname = "dicomforge";
-            version = "1.3.0";
+            version = "1.4.0";
 
             src = ./.;
 
@@ -24,7 +24,7 @@
             ldflags = [
               "-s"
               "-w"
-              "-X main.version=1.3.0"
+              "-X main.version=1.4.0"
             ];
 
             meta = with pkgs.lib; {
