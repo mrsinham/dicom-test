@@ -880,6 +880,7 @@ func (w *Wizard) toGeneratorOptions() (dicom.GeneratorOptions, error) {
 		SeriesPerStudy:    util.SeriesRange{Min: seriesPerStudy, Max: seriesPerStudy},
 		StudyDescriptions: studyDescriptions,
 		CustomTags:        customTags,
+		Quiet:             true, // Suppress output for TUI integration
 	}
 
 	// Extract body part from first study if available
