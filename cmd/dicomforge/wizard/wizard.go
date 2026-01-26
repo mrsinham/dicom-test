@@ -798,13 +798,19 @@ func (w *Wizard) startGeneration() (tea.Model, tea.Cmd) {
 			return screens.ErrorMsg{Error: err}
 		}
 
-		// Calculate total size
+		// Organize into DICOMDIR structure (PT/ST/SE hierarchy)
+		if err := dicom.OrganizeFilesIntoDICOMDIR(opts.OutputDir, files); err != nil {
+			return screens.ErrorMsg{Error: fmt.Errorf("creating DICOMDIR: %w", err)}
+		}
+
+		// Calculate total size from organized files
 		var totalSize int64
-		for _, f := range files {
-			if info, err := os.Stat(f.Path); err == nil {
+		filepath.Walk(opts.OutputDir, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() {
 				totalSize += info.Size()
 			}
-		}
+			return nil
+		})
 
 		return screens.CompletionMsg{
 			TotalFiles: len(files),
