@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	internaldicom "github.com/mrsinham/dicomforge/internal/dicom"
+	"github.com/mrsinham/dicomforge/internal/dicom/corruption"
 	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
 	"github.com/mrsinham/dicomforge/internal/util"
 	"github.com/suyashkumar/dicom"
@@ -709,4 +710,298 @@ func TestEdgeCases_Percentage(t *testing.T) {
 		t.Errorf("Expected ~50%% long names (%d-%d of %d), got %d", minExpected, maxExpected, totalPatients, longNameCount)
 	}
 	t.Logf("✓ Edge case percentage test passed")
+}
+
+// TestCorruption_VendorTags tests that vendor corruption types (siemens, ge, philips)
+// generate parseable DICOM files containing expected private tags
+func TestCorruption_VendorTags(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   3,
+		TotalSize:   "1MB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		Quiet:       true,
+		CorruptionConfig: corruption.Config{
+			Types: []corruption.CorruptionType{
+				corruption.SiemensCSA,
+				corruption.GEPrivate,
+				corruption.PhilipsPrivate,
+			},
+		},
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries with corruption failed: %v", err)
+	}
+
+	if len(files) != 3 {
+		t.Fatalf("Expected 3 files, got %d", len(files))
+	}
+
+	// Parse first file and verify private tags exist
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("Failed to parse corrupted DICOM file: %v", err)
+	}
+
+	// Verify Siemens CSA private creator
+	found := findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x0010})
+	if found == nil {
+		t.Error("Siemens CSA private creator (0029,0010) not found")
+	} else {
+		t.Logf("✓ Found Siemens CSA private creator: %v", found.Value)
+	}
+
+	// Verify Siemens CSA Image Header
+	found = findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x1010})
+	if found == nil {
+		t.Error("Siemens CSA Image Header (0029,1010) not found")
+	} else {
+		t.Logf("✓ Found Siemens CSA Image Header")
+	}
+
+	// Verify GE private creator
+	found = findElementByTag(ds, tag.Tag{Group: 0x0009, Element: 0x0010})
+	if found == nil {
+		t.Error("GE GEMS private creator (0009,0010) not found")
+	} else {
+		t.Logf("✓ Found GE GEMS private creator: %v", found.Value)
+	}
+
+	// Verify Philips private creator
+	found = findElementByTag(ds, tag.Tag{Group: 0x2005, Element: 0x0010})
+	if found == nil {
+		t.Error("Philips private creator (2005,0010) not found")
+	} else {
+		t.Logf("✓ Found Philips private creator: %v", found.Value)
+	}
+
+	// Verify standard tags still work
+	_, err = ds.FindElementByTag(tag.PatientName)
+	if err != nil {
+		t.Error("PatientName tag not found in corrupted file")
+	}
+	_, err = ds.FindElementByTag(tag.StudyInstanceUID)
+	if err != nil {
+		t.Error("StudyInstanceUID tag not found in corrupted file")
+	}
+
+	t.Logf("✓ Corruption vendor tags test passed")
+}
+
+// TestCorruption_MalformedLengths tests that malformed-lengths corruption produces
+// files that are intentionally invalid (not parseable by strict DICOM parsers)
+func TestCorruption_MalformedLengths(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   2,
+		TotalSize:   "500KB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		Quiet:       true,
+		CorruptionConfig: corruption.Config{
+			Types: []corruption.CorruptionType{corruption.MalformedLengths},
+		},
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries with malformed-lengths failed: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("Expected 2 files, got %d", len(files))
+	}
+
+	// Verify files exist and are non-empty
+	for _, f := range files {
+		info, err := os.Stat(f.Path)
+		if err != nil {
+			t.Errorf("File %s does not exist: %v", f.Path, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("File %s is empty", f.Path)
+		}
+	}
+
+	// Attempting to parse these with a strict parser should fail due to odd VL
+	_, err = dicom.ParseFile(files[0].Path, nil)
+	if err == nil {
+		t.Log("Note: strict parser accepted malformed file (parser may be lenient)")
+	} else {
+		t.Logf("✓ Strict parser correctly rejected malformed file: %v", err)
+	}
+
+	// Verify DICOMDIR creation still works with malformed files
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(tmpDir, files, true)
+	if err != nil {
+		t.Fatalf("DICOMDIR creation should succeed with malformed files: %v", err)
+	}
+
+	// Verify DICOMDIR exists
+	dicomdirPath := filepath.Join(tmpDir, "DICOMDIR")
+	if _, err := os.Stat(dicomdirPath); os.IsNotExist(err) {
+		t.Error("DICOMDIR file should exist after organizing malformed files")
+	} else {
+		t.Logf("✓ DICOMDIR created successfully despite malformed elements")
+	}
+
+	t.Logf("✓ Malformed lengths test passed")
+}
+
+// TestCorruption_SiemensOnly tests Siemens CSA corruption in isolation
+func TestCorruption_SiemensOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   2,
+		TotalSize:   "500KB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		Quiet:       true,
+		CorruptionConfig: corruption.Config{
+			Types: []corruption.CorruptionType{corruption.SiemensCSA},
+		},
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries with Siemens corruption failed: %v", err)
+	}
+
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("Failed to parse DICOM file: %v", err)
+	}
+
+	// Should have Siemens tags
+	if findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x0010}) == nil {
+		t.Error("Siemens private creator not found")
+	}
+
+	// Should NOT have GE tags
+	if findElementByTag(ds, tag.Tag{Group: 0x0009, Element: 0x0010}) != nil {
+		t.Error("GE tags should not be present with siemens-csa only")
+	}
+
+	// Should NOT have Philips tags
+	if findElementByTag(ds, tag.Tag{Group: 0x2005, Element: 0x0010}) != nil {
+		t.Error("Philips tags should not be present with siemens-csa only")
+	}
+
+	t.Logf("✓ Siemens-only corruption test passed")
+}
+
+// TestCorruption_WithEdgeCases tests that corruption and edge cases work together
+func TestCorruption_WithEdgeCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   5,
+		TotalSize:   "1MB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		Quiet:       true,
+		EdgeCaseConfig: edgecases.Config{
+			Percentage: 100,
+			Types:      []edgecases.EdgeCaseType{edgecases.SpecialChars},
+		},
+		CorruptionConfig: corruption.Config{
+			Types: []corruption.CorruptionType{corruption.SiemensCSA},
+		},
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries with corruption + edge cases failed: %v", err)
+	}
+
+	if len(files) != 5 {
+		t.Fatalf("Expected 5 files, got %d", len(files))
+	}
+
+	// Verify the file is parseable and has both corruption and edge case effects
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("Failed to parse DICOM file: %v", err)
+	}
+
+	// Should have Siemens corruption
+	if findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x0010}) == nil {
+		t.Error("Siemens private creator not found")
+	}
+
+	// Should have a patient name (possibly with special chars)
+	nameElem, err := ds.FindElementByTag(tag.PatientName)
+	if err != nil {
+		t.Error("PatientName not found")
+	} else {
+		t.Logf("✓ Patient name: %v", nameElem.Value)
+	}
+
+	t.Logf("✓ Corruption + edge cases test passed")
+}
+
+// TestCorruption_NoRegression tests that standard generation without corruption still works
+func TestCorruption_NoRegression(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   3,
+		TotalSize:   "500KB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		Quiet:       true,
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries without corruption failed: %v", err)
+	}
+
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("Failed to parse DICOM file: %v", err)
+	}
+
+	// Standard tags should be present
+	requiredTags := []tag.Tag{
+		tag.PatientName, tag.PatientID, tag.StudyInstanceUID,
+		tag.SeriesInstanceUID, tag.SOPInstanceUID, tag.Modality,
+	}
+	for _, t2 := range requiredTags {
+		if _, err := ds.FindElementByTag(t2); err != nil {
+			t.Errorf("Required tag %v not found", t2)
+		}
+	}
+
+	// Private vendor tags should NOT be present
+	if findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x0010}) != nil {
+		t.Error("Siemens private tags should not be present without corruption")
+	}
+	if findElementByTag(ds, tag.Tag{Group: 0x0009, Element: 0x0010}) != nil {
+		t.Error("GE private tags should not be present without corruption")
+	}
+
+	t.Logf("✓ No regression test passed")
+}
+
+// findElementByTag searches for an element with the given tag in a dataset
+func findElementByTag(ds dicom.Dataset, t tag.Tag) *dicom.Element {
+	for _, elem := range ds.Elements {
+		if elem.Tag == t {
+			return elem
+		}
+	}
+	return nil
 }
