@@ -33,7 +33,7 @@ func writeDatasetToFile(filename string, ds dicom.Dataset, opts ...dicom.WriteOp
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return dicom.Write(f, ds, opts...)
 }
@@ -1168,7 +1168,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 				// Generate deterministic pixel seed for this specific image
 				pixelSeedHash := fnv.New64a()
-				_, _ = pixelSeedHash.Write([]byte(fmt.Sprintf("%d_pixel_%d", seed, globalImageIndex)))
+				_, _ = fmt.Fprintf(pixelSeedHash, "%d_pixel_%d", seed, globalImageIndex)
 				pixelSeed := pixelSeedHash.Sum64()
 
 				filename := fmt.Sprintf("IMG%04d.dcm", globalImageIndex)

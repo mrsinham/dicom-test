@@ -201,7 +201,7 @@ func parseDICOMTolerant(filepath string) (dicom.Dataset, error) {
 	if err != nil {
 		return dicom.Dataset{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {
@@ -575,7 +575,7 @@ func updateOffsetsInFile(path string, data []byte, recordPositions []int64) erro
 	if err != nil {
 		return fmt.Errorf("open file for update: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Update FirstDirectoryRecordOffset and LastDirectoryRecordOffset in the header
 	if len(recordPositions) > 0 {
