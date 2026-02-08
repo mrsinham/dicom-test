@@ -793,8 +793,11 @@ func TestCorruption_VendorTags(t *testing.T) {
 	t.Logf("✓ Corruption vendor tags test passed")
 }
 
-// TestCorruption_MalformedLengths tests that malformed-lengths corruption produces
-// files that are intentionally invalid (not parseable by strict DICOM parsers)
+// TestCorruption_MalformedLengths reproduces the exact dcmdump warnings from real
+// Siemens scanner output:
+//
+//	W: DcmItem: Length of element (0070,0253) is not a multiple of 4 (VR=FL)
+//	W: DcmItem: Length of element (7fe0,0010) is not a multiple of 2 (VR=OW)
 func TestCorruption_MalformedLengths(t *testing.T) {
 	tmpDir := t.TempDir()
 	opts := internaldicom.GeneratorOptions{
@@ -819,24 +822,55 @@ func TestCorruption_MalformedLengths(t *testing.T) {
 		t.Fatalf("Expected 2 files, got %d", len(files))
 	}
 
-	// Verify files exist and are non-empty
-	for _, f := range files {
-		info, err := os.Stat(f.Path)
-		if err != nil {
-			t.Errorf("File %s does not exist: %v", f.Path, err)
-			continue
-		}
-		if info.Size() == 0 {
-			t.Errorf("File %s is empty", f.Path)
-		}
+	// Read raw file bytes to verify the binary patches
+	data, err := os.ReadFile(files[0].Path)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
 	}
 
-	// Attempting to parse these with a strict parser should fail due to odd VL
-	_, err = dicom.ParseFile(files[0].Path, nil)
-	if err == nil {
-		t.Log("Note: strict parser accepted malformed file (parser may be lenient)")
-	} else {
-		t.Logf("✓ Strict parser correctly rejected malformed file: %v", err)
+	// Verify (0070,0253) FL tag is present with non-multiple-of-4 VL
+	flFound := false
+	for i := 0; i <= len(data)-8; i++ {
+		// Look for tag (0070,0253) in Little Endian
+		if data[i] == 0x70 && data[i+1] == 0x00 && data[i+2] == 0x53 && data[i+3] == 0x02 {
+			vr := string(data[i+4 : i+6])
+			if vr == "FL" {
+				// Short form: VL at offset 6-8
+				vl := uint16(data[i+6]) | uint16(data[i+7])<<8
+				if vl%4 != 0 {
+					t.Logf("✓ Found (0070,0253) FL with VL=%d (not multiple of 4)", vl)
+					flFound = true
+				} else {
+					t.Errorf("(0070,0253) FL has VL=%d which IS multiple of 4", vl)
+				}
+			}
+			break
+		}
+	}
+	if !flFound {
+		t.Error("(0070,0253) FL with non-multiple-of-4 VL not found")
+	}
+
+	// Verify (7FE0,0010) PixelData OW has odd VL
+	pixelFound := false
+	for i := 0; i <= len(data)-12; i++ {
+		if data[i] == 0xE0 && data[i+1] == 0x7F && data[i+2] == 0x10 && data[i+3] == 0x00 {
+			vr := string(data[i+4 : i+6])
+			if vr == "OW" || vr == "OB" {
+				// Long form: VR(2) + Reserved(2) + VL(4)
+				vl := uint32(data[i+8]) | uint32(data[i+9])<<8 | uint32(data[i+10])<<16 | uint32(data[i+11])<<24
+				if vl%2 != 0 {
+					t.Logf("✓ Found (7FE0,0010) %s with VL=%d (odd, not multiple of 2)", vr, vl)
+					pixelFound = true
+				} else {
+					t.Errorf("(7FE0,0010) %s has VL=%d which IS multiple of 2", vr, vl)
+				}
+			}
+			break
+		}
+	}
+	if !pixelFound {
+		t.Error("(7FE0,0010) PixelData with odd VL not found")
 	}
 
 	// Verify DICOMDIR creation still works with malformed files
@@ -845,7 +879,6 @@ func TestCorruption_MalformedLengths(t *testing.T) {
 		t.Fatalf("DICOMDIR creation should succeed with malformed files: %v", err)
 	}
 
-	// Verify DICOMDIR exists
 	dicomdirPath := filepath.Join(tmpDir, "DICOMDIR")
 	if _, err := os.Stat(dicomdirPath); os.IsNotExist(err) {
 		t.Error("DICOMDIR file should exist after organizing malformed files")
@@ -856,7 +889,13 @@ func TestCorruption_MalformedLengths(t *testing.T) {
 	t.Logf("✓ Malformed lengths test passed")
 }
 
-// TestCorruption_SiemensOnly tests Siemens CSA corruption in isolation
+// TestCorruption_SiemensOnly tests Siemens CSA corruption reproduces the real
+// dcmdump output:
+//
+//	(0029,0010) LO "SIEMENS CSA HEADER"
+//	(0029,1010) OB [CSA Image Header with SV10 magic]
+//	(0029,1020) OB [CSA Series Header with SV10 magic]
+//	(0029,1102) SQ (Sequence with explicit length #=1)  # ~9434, 1 Unknown Tag & Data
 func TestCorruption_SiemensOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 	opts := internaldicom.GeneratorOptions{
@@ -882,10 +921,50 @@ func TestCorruption_SiemensOnly(t *testing.T) {
 		t.Fatalf("Failed to parse DICOM file: %v", err)
 	}
 
-	// Should have Siemens tags
-	if findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x0010}) == nil {
-		t.Error("Siemens private creator not found")
+	// Verify private creator (0029,0010) = "SIEMENS CSA HEADER"
+	creator := findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x0010})
+	if creator == nil {
+		t.Fatal("Siemens private creator (0029,0010) not found")
 	}
+	creatorStr := strings.Trim(creator.Value.String(), " []")
+	if creatorStr != "SIEMENS CSA HEADER" {
+		t.Errorf("private creator = %q, want \"SIEMENS CSA HEADER\"", creatorStr)
+	}
+	t.Logf("✓ (0029,0010) = %s", creatorStr)
+
+	// Verify CSA Image Header (0029,1010) starts with SV10 magic
+	imageHeader := findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x1010})
+	if imageHeader == nil {
+		t.Fatal("CSA Image Header (0029,1010) not found")
+	}
+	imageBytes := imageHeader.Value.GetValue().([]byte)
+	if len(imageBytes) < 4 || string(imageBytes[0:4]) != "SV10" {
+		t.Error("CSA Image Header should start with SV10 magic")
+	} else {
+		t.Logf("✓ (0029,1010) CSA Image Header: %d bytes, starts with SV10", len(imageBytes))
+	}
+
+	// Verify CSA Series Header (0029,1020) starts with SV10 magic
+	seriesHeader := findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x1020})
+	if seriesHeader == nil {
+		t.Fatal("CSA Series Header (0029,1020) not found")
+	}
+	seriesBytes := seriesHeader.Value.GetValue().([]byte)
+	if len(seriesBytes) < 4 || string(seriesBytes[0:4]) != "SV10" {
+		t.Error("CSA Series Header should start with SV10 magic")
+	} else {
+		t.Logf("✓ (0029,1020) CSA Series Header: %d bytes, starts with SV10", len(seriesBytes))
+	}
+
+	// Verify crash-trigger SQ (0029,1102) exists as a sequence
+	crashSQ := findElementByTag(ds, tag.Tag{Group: 0x0029, Element: 0x1102})
+	if crashSQ == nil {
+		t.Fatal("Crash-trigger SQ (0029,1102) not found")
+	}
+	if crashSQ.RawValueRepresentation != "SQ" {
+		t.Errorf("(0029,1102) should be SQ, got %s", crashSQ.RawValueRepresentation)
+	}
+	t.Logf("✓ (0029,1102) SQ crash-trigger sequence found")
 
 	// Should NOT have GE tags
 	if findElementByTag(ds, tag.Tag{Group: 0x0009, Element: 0x0010}) != nil {

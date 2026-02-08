@@ -31,12 +31,12 @@ func TestApplicator_GenerateCorruptionElements(t *testing.T) {
 		{
 			name:     "malformed only",
 			types:    []CorruptionType{MalformedLengths},
-			minCount: 2, // FL placeholder + OW placeholder
+			minCount: 1, // FL placeholder (PixelData patched in post-processing)
 		},
 		{
 			name:     "all types",
 			types:    AllCorruptionTypes(),
-			minCount: 13, // 4 + 4 + 3 + 2
+			minCount: 12, // 4 + 4 + 3 + 1
 		},
 	}
 
