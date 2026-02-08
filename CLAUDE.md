@@ -14,6 +14,16 @@ gosec -exclude=G115,G301,G302,G304,G404 ./...                         # security
 
 Version: `-ldflags "-X main.version=X.Y.Z"`. CI: Go 1.22/1.23/1.24. Nix flake for dev shell.
 
+## Before pushing to a PR branch
+
+Always run lint, security and tests locally before pushing:
+
+```bash
+go vet ./... && staticcheck ./... && golangci-lint run                 # lint
+gosec -exclude=G115,G301,G302,G304,G404 ./...                         # security
+go test $(go list ./... | grep -v /tests/e2e) -v -race -short         # tests
+```
+
 ## Project layout
 
 ```
