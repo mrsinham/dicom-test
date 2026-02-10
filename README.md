@@ -36,6 +36,12 @@ brew tap mrsinham/tap
 brew install dicomforge
 ```
 
+#### Update to the latest version
+
+```bash
+brew update && brew upgrade dicomforge
+```
+
 ### Nix
 
 ```bash
